@@ -1,0 +1,40 @@
+menu "Example Configuration"
+
+    menu "I2C Master"
+        config I2C_MASTER_SCL
+            int "SCL GPIO Num"
+            default 19
+            help
+                GPIO number for I2C Master clock line.
+
+        config I2C_MASTER_SDA
+            int "SDA GPIO Num"
+            default 18
+            help
+                GPIO number for I2C Master data line.
+
+        config I2C_MASTER_PORT_NUM
+            int "Port Number"
+            default 1
+            help
+                Port number for I2C Master device.
+
+        config I2C_MASTER_FREQUENCY
+            int "Master Frequency"
+            default 100000
+            help
+                I2C Speed of Master device.
+    endmenu
+
+    config BLINK_GPIO
+        int "Blink"
+        range 0 34
+        default 5
+        help
+            GPIO number (IOxx) to blink on and off.
+
+            Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to blink.
+
+            GPIOs 35-39 are input-only so cannot be used as outputs.
+
+endmenu
