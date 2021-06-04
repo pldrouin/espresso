@@ -1,12 +1,3 @@
-/* Blink Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "esp_system.h"
@@ -15,7 +6,8 @@
 #include "esp_vfs_dev.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "freertos/event_groups.h"
+
 #include "driver/timer.h"
 #include "driver/gpio.h"
 
@@ -24,7 +16,10 @@
 #include "argtable3/argtable3.h"
 
 #include "cmd_system.h"
-#include "i2c_config.h"
+
+#include "Arduino.h"
+
+#include "controller.h"
 
 #include "sdkconfig.h"
 
@@ -32,22 +27,10 @@
 #error This example is incompatible with USB CDC console. Please try "console_usb" example instead.
 #endif // CONFIG_ESP_CONSOLE_USB_CDC
 
-#define I2C_MASTER_NUM I2C_NUMBER(CONFIG_I2C_MASTER_PORT_NUM) /*!< I2C port number for master dev */
+EventGroupHandle_t eg;
+volatile float pwm_output=0;
 
-static const char* TAG = "example";
 #define PROMPT_STR CONFIG_IDF_TARGET
-
-#define TIMER_DIVIDER         (16)  //  Hardware timer clock divider
-#define TIMER_SCALE           (TIMER_BASE_CLK / TIMER_DIVIDER)  // convert counter value to seconds
-
-#define CBLEN 1024
-uint8_t combuf[CBLEN];
-size_t comlen=0;
-
-/* Can use project configuration menu (idf.py menuconfig) to choose the GPIO to blink,
-   or you can edit the following line and set a number here.
-*/
-#define BLINK_GPIO CONFIG_BLINK_GPIO
 
 void initialize_console(void)
 {
@@ -87,8 +70,8 @@ void initialize_console(void)
 
 	/* Initialize the console */
 	esp_console_config_t console_config = {
-			.max_cmdline_args = 8,
 			.max_cmdline_length = 256,
+			.max_cmdline_args = 8,
 #if CONFIG_LOG_COLORS
 			.hint_color = atoi(LOG_COLOR_CYAN)
 #endif
@@ -117,36 +100,16 @@ void initialize_console(void)
 #endif
 }
 
-void app_main(void)
+extern "C" void app_main()
 {
-	timer_config_t config = {
-			.divider = TIMER_DIVIDER,
-			.counter_dir = TIMER_COUNT_UP,
-			.counter_en = TIMER_PAUSE,
-			.alarm_en = TIMER_ALARM_DIS,
-			.auto_reload = false,
-	}; // default clock source is APB
-	timer_init(TIMER_GROUP_0, TIMER_0, &config);
-
-	/* Timer's counter will initially start from value below.
-	   Also, if auto_reload is set, this value will be automatically reload on alarm */
-	timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0);
-
-	timer_start(TIMER_GROUP_0, TIMER_0);
-
-	/* Configure the IOMUX register for pad BLINK_GPIO (some pads are
-       muxed to GPIO on reset already, but some default to other
-       functions and need to be switched to GPIO. Consult the
-       Technical Reference for a list of pads and their default
-       functions.)
-	 */
-	gpio_pad_select_gpio(BLINK_GPIO);
-	/* Set the GPIO as a push/pull output */
-	gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+	initArduino();
+	eg=xEventGroupCreate();
+	ControllerInit();
 
 	initialize_console();
 
 	/* Register commands */
+	register_system();
 	esp_console_register_help_command();
 
 	/* Prompt to be printed before each line.
@@ -169,8 +132,6 @@ void app_main(void)
 #endif //CONFIG_LOG_COLORS
 	}
 
-	ESP_ERROR_CHECK(i2c_master_init());
-
 	while(1) {
 		/*
 		// Blink off (output low)
@@ -182,6 +143,7 @@ void app_main(void)
 		gpio_set_level(BLINK_GPIO, 1);
 		vTaskDelay(1000 / portTICK_PERIOD_MS);
 		 */
+	    //printf("ADC voltage is %.15f\n",ads.readADC_SingleEnded(0)*0.000125f);
 
 		/* Get a line using linenoise.
 		 * The line is returned when ENTER is pressed.
@@ -216,6 +178,6 @@ void app_main(void)
 
 	}
 
-	ESP_LOGE(TAG, "Error or end-of-input, terminating console");
+	ESP_LOGE("", "Error or end-of-input, terminating console");
 	esp_console_deinit();
 }

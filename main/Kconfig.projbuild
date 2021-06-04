@@ -1,4 +1,41 @@
-menu "Example Configuration"
+menu "Application Configuration"
+    menu "Control Sampling"
+	config CONTROL_SAMPLING_FREQ
+	    int "Control Samp Freq"
+	    default 80
+	    help
+		Frequency of sampling for control.
+
+	config TEMP_N_SAMPLES
+	    int "Temp N Samples"
+	    default 1
+	    help
+		Number of control samples per temperature measurement.
+
+    	config TEMP_AVE_N_MEAS
+	    int "Temp Ave N Meas"
+	    default 10
+	    help
+		Number of temperature measurements used for averaging.
+
+	config CONTROL_PWM_CLOCK_TICK_N_SAMPLES
+	    int "PWM Clock Tick N Samples"
+	    default 10
+	    help
+		Number of samples corresponding to one PWM clock tick.
+
+	config CONTROL_PWM_CLOCK_PERIOD_N_TICKS
+	    int "PWM Clock Period N Ticks"
+	    default 128
+	    help
+		Number of PWM clock ticks corresponding to the PWM period.
+
+	config CONTROLLER_SAMPLING_PERIOD_N_SAMPLES
+	    int "Controller Sampling Period N Samples"
+	    default 80
+	    help
+		Number of control samples corresponding to the controller sampling period.
+    endmenu
 
     menu "I2C Master"
         config I2C_MASTER_SCL
@@ -26,15 +63,17 @@ menu "Example Configuration"
                 I2C Speed of Master device.
     endmenu
 
-    config BLINK_GPIO
-        int "Blink"
-        range 0 34
-        default 5
-        help
-            GPIO number (IOxx) to blink on and off.
+    config PWM_GPIO
+	int "PWM GPIO"
+	range 0 34
+	default 21
+	help
+	    GPIO number for PWM output.
 
-            Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to blink.
-
-            GPIOs 35-39 are input-only so cannot be used as outputs.
-
+    config KILLSWITCH_GPIO
+	int "Killswitch GPIO"
+	range 0 34
+	default 14
+	help
+	    GPIO number for killswitch.
 endmenu
