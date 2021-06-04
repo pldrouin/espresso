@@ -14,9 +14,10 @@ static float radcsum;
 Adafruit_ADS1115 ads;
 static int tidx; //Ring buffer index
 
-volatile float radcave;
-volatile float tempave=NAN;
-volatile int tempstate=kTempUninitialized;
+float radcave;
+float tempave=NAN;
+int tempstate=kTempUninitialized;
+uint32_t temptime=0; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because we want consistent temperature values, but we don't need consistency of independent atomic operations between threads
 
 #define MIN_TEMP (10)
 #define MAX_TEMP (127.41)
@@ -44,6 +45,7 @@ void TemperatureInit()
 
 	if(tempave >= MIN_TEMP && tempave <= MAX_TEMP) tempstate=kTempOK;
 	else tempstate=kTempInvalid;
+	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
 
 	xTaskCreate(TempUpdate, "Temperature Update", 2048, NULL, configMAX_PRIORITIES-1, &TemperatureHandle);
 }
@@ -55,14 +57,17 @@ void TemperatureDeinit()
 		TemperatureHandle=NULL;
 	}
 	tempave=NAN;
+	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
 }
 
 void TempUpdate(void* parameter)
 {
 	int i;
+	uint32_t time;
 
 	for(;;) {
 		xEventGroupWaitBits(eg, TEMP_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
+    	__atomic_load(&samp_counter, &time, __ATOMIC_RELAXED);
 
 		radcsum-=radcsamples[tidx];
 		radcsamples[tidx]=ads.readADC_SingleEnded(1)/(float)ads.readADC_SingleEnded(0);
@@ -76,6 +81,7 @@ void TempUpdate(void* parameter)
     	tempave=CalcTemp(radcave);
 
     	if(tempave < MIN_TEMP || tempave > MAX_TEMP) tempstate=kTempInvalid;
+   	    __atomic_store_n(&temptime, time, __ATOMIC_RELEASE);
 		tidx=(tidx+1)%CONFIG_TEMP_AVE_N_MEAS;
 	}
 }

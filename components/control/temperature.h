@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "driver/timer.h"
 
 #include "sdkconfig.h"
 
@@ -29,18 +30,20 @@
 #define TEMP_a2 (2.880722504878676e-5)
 #define TEMP_a3 (-5.900153918112557e-6)
 
-extern volatile float radcave;
-extern volatile float tempave;
-extern volatile int tempstate;
+extern float radcave;
+extern float tempave;
+extern int tempstate;
+extern uint32_t temptime;
 
 enum {kTempUninitialized=-1, kTempOK=0, kTempInvalid=1};
 
 void TemperatureInit();
 void TemperatureDeinit();
 
-inline const volatile float& TempGetRelativeADCAve(){return radcave;}
-inline const volatile float& TempGetTempAve(){return tempave;}
-inline const volatile int& TempState(){return tempstate;}
+inline const float& TempGetRelativeADCAve(){return radcave;}
+inline const float& TempGetTempAve(){return tempave;}
+inline const int& TempState(){return tempstate;}
+inline uint32_t TempTime(){uint32_t ret; __atomic_load(&temptime, &ret, __ATOMIC_ACQUIRE); return ret;}
 
 void TempUpdate(void* parameter);
 

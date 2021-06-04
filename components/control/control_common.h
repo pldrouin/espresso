@@ -8,7 +8,12 @@
 #ifndef COMPONENTS_CONTROL_CONTROL_COMMON_H_
 #define COMPONENTS_CONTROL_CONTROL_COMMON_H_
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+
 extern EventGroupHandle_t eg;
+extern uint32_t samp_counter;
+extern float pwm_output;
 
 #define TEMP_UPDATE_TASK_BIT (1)
 #define PWM_TASK_BIT (1<<1)

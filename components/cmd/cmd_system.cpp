@@ -89,8 +89,20 @@ static void register_pwm_set_output(void)
 
 static int cmd_status(int argc, char **argv)
 {
-	printf("Relative ADC average is %.6f\n",TempGetRelativeADCAve());
-	printf("Temperature average is %.4f C\n",TempGetTempAve());
+	uint64_t temptime, newtemptime=TempTime();
+	float radcval, tempval;
+
+	do {
+		temptime=newtemptime;
+		radcval=TempGetRelativeADCAve();
+		tempval=TempGetTempAve();
+		newtemptime=TempTime();
+
+	} while(newtemptime!=temptime);
+
+	printf("Relative ADC average is %.6f\n",radcval);
+	printf("Temperature average is %.4f C\n",tempval);
+	printf("Temperature measurement time is %" PRIu64 "\n",temptime);
 	printf("PWM Output is %.4f\n",PWMGetOutput());
 	return 0;
 }

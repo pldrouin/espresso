@@ -11,6 +11,7 @@
 #define ALARM_N_TICKS		  (TIMER_BASE_CLK / TIMER_DIVIDER / CONFIG_CONTROL_SAMPLING_FREQ)
 
 static TaskHandle_t ControllerHandle = NULL;
+static void (*ControllerAlgorithm)() = NULL;
 
 void ControllerInit()
 {
@@ -56,7 +57,13 @@ void ControllerDeinit()
 		vTaskDelete(ControllerHandle);
 		ControllerHandle=NULL;
 	}
+	samp_counter=0;
 	printf("Controller has ended\n");
+}
+
+void ControllerSetAlgorithm(void (*algo)())
+{
+	ControllerAlgorithm=algo;
 }
 
 bool IRAM_ATTR ControllerCallback(void *args)
@@ -64,11 +71,15 @@ bool IRAM_ATTR ControllerCallback(void *args)
 	uint64_t timer_counter_value = timer_group_get_counter_value_in_isr(TIMER_GROUP_0, TIMER_0);
     BaseType_t high_task_awoken = pdFALSE;
 
-    if(timer_counter_value%(CONFIG_TEMP_N_SAMPLES*ALARM_N_TICKS) == 0) xEventGroupSetBitsFromISR(eg, TEMP_UPDATE_TASK_BIT, &high_task_awoken);
+    __atomic_add_fetch(&samp_counter, 1, __ATOMIC_RELAXED);
 
-    if(timer_counter_value%(CONFIG_CONTROL_PWM_CLOCK_TICK_N_SAMPLES*ALARM_N_TICKS) == 0) xEventGroupSetBitsFromISR(eg, PWM_TASK_BIT, &high_task_awoken);
+    uint64_t sample=timer_counter_value/ALARM_N_TICKS;
 
-    if(timer_counter_value%(CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES*ALARM_N_TICKS) == 0) xEventGroupSetBitsFromISR(eg, CONTROLLER_UPDATE_TASK_BIT, &high_task_awoken);
+    if(sample%(CONFIG_TEMP_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, TEMP_UPDATE_TASK_BIT, &high_task_awoken);
+
+    if(sample%(CONFIG_CONTROL_PWM_CLOCK_TICK_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, PWM_TASK_BIT, &high_task_awoken);
+
+    if(sample%(CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, CONTROLLER_UPDATE_TASK_BIT, &high_task_awoken);
 
     timer_counter_value += ALARM_N_TICKS;
     timer_group_set_alarm_value_in_isr(TIMER_GROUP_0, TIMER_0, timer_counter_value);
@@ -82,4 +93,5 @@ void ControllerUpdate(void* parameter)
 		ControllerDeinit();
 		return;
 	}
+	ControllerAlgorithm();
 }

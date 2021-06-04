@@ -23,6 +23,8 @@
 void ControllerInit();
 void ControllerDeinit();
 
+void ControllerSetAlgorithm(void (*algo)());
+
 bool IRAM_ATTR ControllerCallback(void *args);
 
 void ControllerUpdate(void* parameter);

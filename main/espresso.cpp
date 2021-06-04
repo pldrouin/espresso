@@ -6,7 +6,6 @@
 #include "esp_vfs_dev.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 
 #include "driver/timer.h"
 #include "driver/gpio.h"
@@ -26,9 +25,6 @@
 #ifdef CONFIG_ESP_CONSOLE_USB_CDC
 #error This example is incompatible with USB CDC console. Please try "console_usb" example instead.
 #endif // CONFIG_ESP_CONSOLE_USB_CDC
-
-EventGroupHandle_t eg;
-volatile float pwm_output=0;
 
 #define PROMPT_STR CONFIG_IDF_TARGET
 
