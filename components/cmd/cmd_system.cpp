@@ -9,12 +9,8 @@
 #include "killswitch.h"
 #include "temperature.h"
 #include "pwm.h"
-
-static struct {
-	struct arg_dbl *output;
-	struct arg_end *end;
-} pwm_output_args;
-
+#include "controller.h"
+#include "simple_control.h"
 
 static int cmd_kill(int argc, char **argv)
 {
@@ -51,6 +47,120 @@ static void register_nokill(void)
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
+
+static int cmd_controller_init(int argc, char **argv)
+{
+	ControllerInit();
+	return 0;
+}
+
+static void register_controller_init(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "controller_init",
+        .help = "Initialize controller",
+        .hint = NULL,
+        .func = &cmd_controller_init,
+		.argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static int cmd_controller_deinit(int argc, char **argv)
+{
+	ControllerDeinit();
+	return 0;
+}
+
+static void register_controller_deinit(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "controller_deinit",
+        .help = "Deinitialize controller",
+        .hint = NULL,
+        .func = &cmd_controller_deinit,
+		.argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static struct {
+	struct arg_dbl *value;
+	struct arg_end *end;
+} target_temp_args;
+
+/* 'target_temp' command */
+static int cmd_set_target_temp(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &target_temp_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, target_temp_args.end, argv[0]);
+		return 1;
+	}
+
+	if(target_temp_args.value->count) {
+
+		if(target_temp_args.value->dval[0]>=MAX_TEMP) {
+			ESP_LOGE("", "Taget temperature must be smaller than %7.3f C\n",MAX_TEMP);
+			return 1;
+		}
+		SetTargetTemp(target_temp_args.value->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_target_temp(void)
+{
+    target_temp_args.value = arg_dbl1(NULL, NULL, "<value>", "Target temperature");
+    target_temp_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_target_temp",
+        .help = "Set target temperature",
+        .hint = NULL,
+        .func = &cmd_set_target_temp,
+		.argtable = &target_temp_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+static struct {
+	struct arg_lit *simple;
+	struct arg_end *end;
+} algo_args;
+
+/* 'algo' command */
+static int cmd_set_algo(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &algo_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, algo_args.end, argv[0]);
+		return 1;
+	}
+
+	if(algo_args.simple->count) ControllerSetAlgorithm(SimpleControl, SimpleControlInit);
+	else ControllerSetAlgorithm(NULL, NULL);
+    return 0;
+}
+
+static void register_set_algo(void)
+{
+    algo_args.simple = arg_lit0("s", "simple", "Simple control algorithm");
+    algo_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_algo",
+        .help = "Set control algoritum",
+        .hint = NULL,
+        .func = &cmd_set_algo,
+		.argtable = &algo_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static struct {
+	struct arg_dbl *output;
+	struct arg_end *end;
+} pwm_output_args;
 
 /* 'pwm_output' command */
 static int cmd_pwm_set_output(int argc, char **argv)
@@ -89,20 +199,21 @@ static void register_pwm_set_output(void)
 
 static int cmd_status(int argc, char **argv)
 {
-	uint64_t temptime, newtemptime=TempTime();
+	uint32_t temptime=TempTime(), newtemptime;
 	float radcval, tempval;
 
-	do {
-		temptime=newtemptime;
+	for(;;) {
 		radcval=TempGetRelativeADCAve();
 		tempval=TempGetTempAve();
 		newtemptime=TempTime();
 
-	} while(newtemptime!=temptime);
+		if(newtemptime==temptime) break;
+		temptime=newtemptime;
+	}
 
 	printf("Relative ADC average is %.6f\n",radcval);
 	printf("Temperature average is %.4f C\n",tempval);
-	printf("Temperature measurement time is %" PRIu64 "\n",temptime);
+	printf("Temperature measurement time is %" PRIu32 "\n",temptime);
 	printf("PWM Output is %.4f\n",PWMGetOutput());
 	return 0;
 }
@@ -119,10 +230,52 @@ static void register_status(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
+static int cmd_start_stats(int argc, char **argv)
+{
+	StartStats();
+	return 0;
+}
+
+static void register_start_stats(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "start_stats",
+        .help = "Start statistics",
+        .hint = NULL,
+        .func = &cmd_start_stats,
+		.argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static int cmd_stop_stats(int argc, char **argv)
+{
+	StopStats();
+	return 0;
+}
+
+static void register_stop_stats(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "stop_stats",
+        .help = "Stop statistics",
+        .hint = NULL,
+        .func = &cmd_stop_stats,
+		.argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
 void register_system(void)
 {
 	register_kill();
 	register_nokill();
+	register_controller_init();
+	register_controller_deinit();
 	register_status();
+	register_start_stats();
+	register_stop_stats();
+	register_set_target_temp();
+	register_set_algo();
 	register_pwm_set_output();
 }

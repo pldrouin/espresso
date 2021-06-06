@@ -15,8 +15,13 @@ extern EventGroupHandle_t eg;
 extern uint32_t samp_counter;
 extern float pwm_output;
 
+extern float target_temp;
+
 #define TEMP_UPDATE_TASK_BIT (1)
 #define PWM_TASK_BIT (1<<1)
 #define CONTROLLER_UPDATE_TASK_BIT (1<<2)
+
+#define MIN_TEMP (10)
+#define MAX_TEMP (127.41)
 
 #endif /* COMPONENTS_CONTROL_CONTROL_COMMON_H_ */

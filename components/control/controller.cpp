@@ -11,18 +11,28 @@
 #define ALARM_N_TICKS		  (TIMER_BASE_CLK / TIMER_DIVIDER / CONFIG_CONTROL_SAMPLING_FREQ)
 
 static TaskHandle_t ControllerHandle = NULL;
-static void (*ControllerAlgorithm)() = NULL;
+static float (*ControllerAlgorithm)() = NULL;
+static void (*ControllerAlgorithmInit)() = NULL;
 
-void ControllerInit()
+static float powersum;
+static float tempsum;
+static float nmeas;
+static bool showstats=false; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because we want consistent measurements, but we don't need consistency of independent atomic operations between threads
+
+float target_temp=0;
+
+int ControllerInit()
 {
 	KillSwitchInit();
 	TemperatureInit();
 
-    if(TempGetTempAve() != kTempOK) return;
+    if(tempstate != kTempOK) return -1;
 	KillSwitchSetNoKill(true);
 	PWMInit();
 
-	xTaskCreate(ControllerUpdate, "Controller Update", 2048, NULL, 5, &ControllerHandle);
+	if(ControllerAlgorithmInit) ControllerAlgorithmInit();
+
+	xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, &ControllerHandle);
 
 	timer_config_t config = {
 			.alarm_en = TIMER_ALARM_EN,
@@ -44,6 +54,7 @@ void ControllerInit()
 	timer_isr_callback_add(TIMER_GROUP_0, TIMER_0, ControllerCallback, NULL, 0);
 
 	timer_start(TIMER_GROUP_0, TIMER_0);
+	return 0;
 }
 
 void ControllerDeinit()
@@ -58,12 +69,17 @@ void ControllerDeinit()
 		ControllerHandle=NULL;
 	}
 	samp_counter=0;
-	printf("Controller has ended\n");
 }
 
-void ControllerSetAlgorithm(void (*algo)())
+int ControllerSetAlgorithm(float (*algo)(), void (*init)())
 {
+	if(ControllerHandle) {
+     	ESP_LOGE(__func_, "Cannot change control algorithm when the controller is active. Ignoring");
+		return -1;
+	}
 	ControllerAlgorithm=algo;
+	ControllerAlgorithmInit=init;
+	return 0;
 }
 
 bool IRAM_ATTR ControllerCallback(void *args)
@@ -88,10 +104,41 @@ bool IRAM_ATTR ControllerCallback(void *args)
 
 void ControllerUpdate(void* parameter)
 {
-	if(TempState() != kTempOK) {
-  	    KillSwitchSetNoKill(false);
-		ControllerDeinit();
-		return;
+
+	for(;;) {
+		xEventGroupWaitBits(eg, CONTROLLER_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
+
+		if(TempState() != kTempOK) {
+			KillSwitchSetNoKill(false);
+			ControllerDeinit();
+			ESP_LOGE(__func_, "Controller has ended");
+			return;
+		}
+
+		if(ControllerAlgorithm) {
+			float tempval=ControllerAlgorithm();
+			bool stats;
+			__atomic_load(&showstats, &stats, __ATOMIC_ACQUIRE);
+
+			if(stats) {
+				powersum+=PWMGetOutput();
+				tempsum+=tempval;
+				++nmeas;
+				printf("\t(average temp %7.3f C, power %7.3f%%)\n",tempsum/nmeas,100*powersum/nmeas);
+			}
+		}
 	}
-	ControllerAlgorithm();
+}
+
+void StartStats()
+{
+	powersum=0;
+	tempsum=0;
+	nmeas=0;
+	__atomic_store_n(&showstats, true, __ATOMIC_RELEASE);
+}
+
+void StopStats()
+{
+	__atomic_store_n(&showstats, false, __ATOMIC_RELEASE);
 }

@@ -19,9 +19,6 @@ float tempave=NAN;
 int tempstate=kTempUninitialized;
 uint32_t temptime=0; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because we want consistent temperature values, but we don't need consistency of independent atomic operations between threads
 
-#define MIN_TEMP (10)
-#define MAX_TEMP (127.41)
-
 inline static float CalcTemp(const volatile float& radcave)
 {
 	double logf=log(radcave/((1.-radcave)*TEMP_Vr_V_fact0));

@@ -100,7 +100,7 @@ extern "C" void app_main()
 {
 	initArduino();
 	eg=xEventGroupCreate();
-	ControllerInit();
+	//ControllerInit();
 
 	initialize_console();
 

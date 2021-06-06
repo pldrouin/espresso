@@ -15,18 +15,28 @@
 #include "sdkconfig.h"
 #include "driver/timer.h"
 
+#include "esp_log.h"
+
 #include "control_common.h"
 #include "killswitch.h"
 #include "temperature.h"
 #include "pwm.h"
 
-void ControllerInit();
+extern float target_temp;
+
+int ControllerInit();
 void ControllerDeinit();
 
-void ControllerSetAlgorithm(void (*algo)());
+int ControllerSetAlgorithm(float (*algo)(), void (*init)());
 
 bool IRAM_ATTR ControllerCallback(void *args);
 
 void ControllerUpdate(void* parameter);
+
+void StartStats();
+void StopStats();
+
+inline void SetTargetTemp(const float& target){target_temp=target;}
+inline const float& GetTargetTemp(){return target_temp;}
 
 #endif /* COMPONENTS_CONTROL_CONTROLLER_H_ */
