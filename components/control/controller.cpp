@@ -23,52 +23,61 @@ float target_temp=0;
 
 int ControllerInit()
 {
-	KillSwitchInit();
-	TemperatureInit();
+	if(!ControllerHandle) {
+		KillSwitchInit();
+		TemperatureInit();
 
-    if(tempstate != kTempOK) return -1;
-	KillSwitchSetNoKill(true);
-	PWMInit();
+		if(tempstate != kTempOK) return -1;
+		KillSwitchSetNoKill(true);
+		PWMInit();
 
-	if(ControllerAlgorithmInit) ControllerAlgorithmInit();
+		if(ControllerAlgorithmInit) ControllerAlgorithmInit();
 
-	xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, &ControllerHandle);
+		xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, &ControllerHandle);
 
-	timer_config_t config = {
-			.alarm_en = TIMER_ALARM_EN,
-			.counter_en = TIMER_PAUSE,
-			.counter_dir = TIMER_COUNT_UP,
-			.auto_reload = (timer_autoreload_t)false,
-			.divider = TIMER_DIVIDER,
-	}; // default clock source is APB
-	timer_init(TIMER_GROUP_0, TIMER_0, &config);
+		timer_config_t config = {
+				.alarm_en = TIMER_ALARM_EN,
+				.counter_en = TIMER_PAUSE,
+				.intr_type = (timer_intr_mode_t)(TIMER_INTR_MAX-1),
+				.counter_dir = TIMER_COUNT_UP,
+				.auto_reload = (timer_autoreload_t)false,
+				.divider = TIMER_DIVIDER
+		}; // default clock source is APB
+		timer_init(TIMER_GROUP_0, TIMER_0, &config);
 
-	/* Timer's counter will initially start from value below.
+		/* Timer's counter will initially start from value below.
 		   Also, if auto_reload is set, this value will be automatically reload on alarm */
-	timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0);
+		timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0);
 
-	/* Configure the alarm value and the interrupt on alarm. */
-	timer_set_alarm_value(TIMER_GROUP_0, TIMER_0, ALARM_N_TICKS);
-	timer_enable_intr(TIMER_GROUP_0, TIMER_0);
+		/* Configure the alarm value and the interrupt on alarm. */
+		timer_set_alarm_value(TIMER_GROUP_0, TIMER_0, ALARM_N_TICKS);
+		timer_enable_intr(TIMER_GROUP_0, TIMER_0);
 
-	timer_isr_callback_add(TIMER_GROUP_0, TIMER_0, ControllerCallback, NULL, 0);
+		timer_isr_callback_add(TIMER_GROUP_0, TIMER_0, ControllerCallback, NULL, 0);
 
-	timer_start(TIMER_GROUP_0, TIMER_0);
+		timer_start(TIMER_GROUP_0, TIMER_0);
+
+	} else {
+     	ESP_LOGE(__func_, "Controller is already initialized. Ignoring");
+	}
 	return 0;
 }
 
 void ControllerDeinit()
 {
-	timer_disable_intr(TIMER_GROUP_0, TIMER_0);
-	timer_deinit(TIMER_GROUP_0, TIMER_0);
-	PWMDeinit();
-	TemperatureDeinit();
-
 	if(ControllerHandle) {
+		timer_disable_intr(TIMER_GROUP_0, TIMER_0);
+		timer_deinit(TIMER_GROUP_0, TIMER_0);
+		PWMDeinit();
+		TemperatureDeinit();
+
 		vTaskDelete(ControllerHandle);
 		ControllerHandle=NULL;
+		samp_counter=0;
+
+	} else {
+     	ESP_LOGE(__func_, "Controller is not initialized. Ignoring");
 	}
-	samp_counter=0;
 }
 
 int ControllerSetAlgorithm(float (*algo)(), void (*init)())

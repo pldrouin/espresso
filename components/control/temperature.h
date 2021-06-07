@@ -25,10 +25,10 @@
 #include "control_common.h"
 
 #define TEMP_T0 (100+273.15)
-#define TEMP_Vr_V_fact0 (1.8425780357363906)
-#define TEMP_a1 (2.177804532216248e-4)
-#define TEMP_a2 (2.880722504878676e-5)
-#define TEMP_a3 (-5.900153918112557e-6)
+#define TEMP_Vr_V_fact0 (1.940691202271725e+00)
+#define TEMP_a1 (2.623205820973477e-04)
+#define TEMP_a2 (-1.000778145046185e-05)
+#define TEMP_a3 (2.581602059858263e-06)
 
 extern float radcave;
 extern float tempave;
