@@ -22,6 +22,6 @@ extern float target_temp;
 #define CONTROLLER_UPDATE_TASK_BIT (1<<2)
 
 #define MIN_TEMP (10)
-#define MAX_TEMP (150)
+#define MAX_TEMP (130)
 
 #endif /* COMPONENTS_CONTROL_CONTROL_COMMON_H_ */
