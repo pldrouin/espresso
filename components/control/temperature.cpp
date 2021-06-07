@@ -7,7 +7,7 @@
 
 #include "temperature.h"
 
-static TaskHandle_t TemperatureHandle = NULL;
+static int keepgoing=0;
 
 static float radcsamples[CONFIG_TEMP_AVE_N_MEAS]; //Ring buffer for ADC0 values
 static float radcsum;
@@ -25,14 +25,17 @@ inline static float CalcTemp(const volatile float& radcave)
 	return 1/(1./TEMP_T0+logf*(TEMP_a1+logf*(TEMP_a2+logf*TEMP_a3)))-273.15;
 }
 
-void TemperatureInit()
+void TemperatureSetup()
 {
-	tidx=0;
-
 	Wire.begin(CONFIG_I2C_MASTER_SDA, CONFIG_I2C_MASTER_SCL, CONFIG_I2C_MASTER_FREQUENCY);
 	ads.setGain(GAIN_ONE);
 	//ads.setGain(GAIN_TWOTHIRDS);
 	ads.begin(ADS1X15_ADDRESS, &Wire);
+}
+
+void TemperatureInit()
+{
+	tidx=0;
 	radcsamples[CONFIG_TEMP_AVE_N_MEAS-1]=ads.readADC_SingleEnded(1)/(float)ads.readADC_SingleEnded(0);
 
 	for(int i=CONFIG_TEMP_AVE_N_MEAS-2; i>=0; --i) radcsamples[i]=radcsamples[CONFIG_TEMP_AVE_N_MEAS-1];
@@ -44,14 +47,17 @@ void TemperatureInit()
 	else tempstate=kTempInvalid;
 	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
 
-	xTaskCreate(TempUpdate, "Temperature Update", 2048, NULL, configMAX_PRIORITIES-1, &TemperatureHandle);
+	keepgoing=1;
+	xTaskCreate(TempUpdate, "Temperature Update", 2048, NULL, configMAX_PRIORITIES-1, NULL);
 }
 
 void TemperatureDeinit()
 {
-	if(TemperatureHandle) {
-		vTaskDelete(TemperatureHandle);
-		TemperatureHandle=NULL;
+	if(keepgoing==1) {
+		keepgoing=0;
+
+		while(!keepgoing) vTaskDelay(1 / portTICK_PERIOD_MS);
+		keepgoing=0;
 	}
 	tempave=NAN;
 	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
@@ -62,7 +68,7 @@ void TempUpdate(void* parameter)
 	int i;
 	uint32_t time;
 
-	for(;;) {
+	while(keepgoing==1) {
 		xEventGroupWaitBits(eg, TEMP_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
     	__atomic_load(&samp_counter, &time, __ATOMIC_RELAXED);
 
@@ -81,5 +87,7 @@ void TempUpdate(void* parameter)
    	    __atomic_store_n(&temptime, time, __ATOMIC_RELEASE);
 		tidx=(tidx+1)%CONFIG_TEMP_AVE_N_MEAS;
 	}
+	keepgoing=-1;
+	vTaskDelete(NULL);
 }
 

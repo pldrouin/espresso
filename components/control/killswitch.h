@@ -22,7 +22,7 @@
 
 extern volatile float killswitch_output;
 
-void KillSwitchInit();
+void KillSwitchSetup();
 inline void KillSwitchSetNoKill(const bool& state=true){gpio_set_level((gpio_num_t)CONFIG_KILLSWITCH_GPIO, state);}
 
 #endif /* COMPONENTS_CONTROL_KILLSWITCH_H_ */

@@ -7,7 +7,7 @@
 
 #include "killswitch.h"
 
-void KillSwitchInit()
+void KillSwitchSetup()
 {
 	/* Configure the IOMUX register for pad BLINK_GPIO (some pads are
        muxed to GPIO on reset already, but some default to other

@@ -37,6 +37,7 @@ extern uint32_t temptime;
 
 enum {kTempUninitialized=-1, kTempOK=0, kTempInvalid=1};
 
+void TemperatureSetup();
 void TemperatureInit();
 void TemperatureDeinit();
 

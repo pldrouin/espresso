@@ -24,6 +24,7 @@
 
 extern float target_temp;
 
+int ControllerSetup();
 int ControllerInit();
 void ControllerDeinit();
 

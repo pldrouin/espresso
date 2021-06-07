@@ -20,6 +20,7 @@
 #include "sdkconfig.h"
 #include "control_common.h"
 
+void PWMSetup();
 void PWMInit();
 void PWMDeinit();
 

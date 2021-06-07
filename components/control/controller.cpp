@@ -10,7 +10,7 @@
 #define TIMER_DIVIDER         (10000)  //  Hardware timer clock divider
 #define ALARM_N_TICKS		  (TIMER_BASE_CLK / TIMER_DIVIDER / CONFIG_CONTROL_SAMPLING_FREQ)
 
-static TaskHandle_t ControllerHandle = NULL;
+static int keepgoing=0;
 static float (*ControllerAlgorithm)() = NULL;
 static void (*ControllerAlgorithmInit)() = NULL;
 
@@ -21,10 +21,17 @@ static bool showstats=false; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because w
 
 float target_temp=0;
 
+int ControllerSetup()
+{
+	KillSwitchSetup();
+	TemperatureSetup();
+	PWMSetup();
+	return 0;
+}
+
 int ControllerInit()
 {
-	if(!ControllerHandle) {
-		KillSwitchInit();
+	if(keepgoing==0) {
 		TemperatureInit();
 
 		if(tempstate != kTempOK) return -1;
@@ -33,7 +40,8 @@ int ControllerInit()
 
 		if(ControllerAlgorithmInit) ControllerAlgorithmInit();
 
-		xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, &ControllerHandle);
+		keepgoing=1;
+		xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, NULL);
 
 		timer_config_t config = {
 				.alarm_en = TIMER_ALARM_EN,
@@ -65,14 +73,18 @@ int ControllerInit()
 
 void ControllerDeinit()
 {
-	if(ControllerHandle) {
+	if(keepgoing==1) {
+		PWMDeinit();
+		PWMSetOutput(0);
+		keepgoing=0;
+
+		while(!keepgoing) vTaskDelay(1 / portTICK_PERIOD_MS);
+		keepgoing=0;
+		TemperatureDeinit();
+		timer_pause(TIMER_GROUP_0, TIMER_0);
+		timer_isr_callback_remove(TIMER_GROUP_0, TIMER_0);
 		timer_disable_intr(TIMER_GROUP_0, TIMER_0);
 		timer_deinit(TIMER_GROUP_0, TIMER_0);
-		PWMDeinit();
-		TemperatureDeinit();
-
-		vTaskDelete(ControllerHandle);
-		ControllerHandle=NULL;
 		samp_counter=0;
 
 	} else {
@@ -82,7 +94,7 @@ void ControllerDeinit()
 
 int ControllerSetAlgorithm(float (*algo)(), void (*init)())
 {
-	if(ControllerHandle) {
+	if(keepgoing) {
      	ESP_LOGE(__func_, "Cannot change control algorithm when the controller is active. Ignoring");
 		return -1;
 	}
@@ -113,8 +125,7 @@ bool IRAM_ATTR ControllerCallback(void *args)
 
 void ControllerUpdate(void* parameter)
 {
-
-	for(;;) {
+	while(keepgoing==1) {
 		xEventGroupWaitBits(eg, CONTROLLER_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
 
 		if(TempState() != kTempOK) {
@@ -137,6 +148,8 @@ void ControllerUpdate(void* parameter)
 			}
 		}
 	}
+	keepgoing=-1;
+	vTaskDelete(NULL);
 }
 
 void StartStats()
