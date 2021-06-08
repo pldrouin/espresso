@@ -240,6 +240,46 @@ static void register_set_init_output(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
+static struct {
+	struct arg_dbl *kp;
+	struct arg_dbl *ki;
+	struct arg_dbl *kd;
+	struct arg_end *end;
+} pid_args;
+
+/* 'set_pid_params' command */
+static int cmd_set_pid_params(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &pid_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, pid_args.end, argv[0]);
+		return 1;
+	}
+
+	if(pid_args.kp->count && pid_args.ki->count && pid_args.kd->count) {
+
+		PIDSetParams(pid_args.kp->dval[0],pid_args.ki->dval[0],pid_args.kd->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_params(void)
+{
+    pid_args.kp = arg_dbl1(NULL, NULL, "<kp>", "kp parameter value");
+    pid_args.ki = arg_dbl1(NULL, NULL, "<ki>", "ki parameter value");
+    pid_args.kd = arg_dbl1(NULL, NULL, "<kd>", "kd parameter value");
+    pid_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_params",
+        .help = "Set PID parameter values",
+        .hint = NULL,
+        .func = &cmd_set_pid_params,
+		.argtable = &pid_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
 /* 'set_init_output' command */
 static int cmd_set_noise_level(int argc, char **argv)
 {
@@ -341,7 +381,7 @@ static void register_set_n_lookback_samples(void)
     int_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {
-        .command = "set_n_loolback_samples",
+        .command = "set_n_lookback_samples",
         .help = "Set the number of lookback samples for autotune",
         .hint = NULL,
         .func = &cmd_set_n_lookback_samples,
@@ -432,6 +472,7 @@ void register_system(void)
 	register_set_algo();
 	register_pwm_set_output();
 	register_set_init_output();
+	register_set_pid_params();
 	register_set_noise_level();
 	register_set_output_step();
 	register_set_n_lookback_samples();

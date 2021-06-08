@@ -23,7 +23,7 @@ extern float target_temp;
 #define CONTROLLER_UPDATE_TASK_BIT (1<<2)
 
 #define MIN_TEMP (10)
-#define MAX_TEMP (130)
+#define MAX_TEMP (135)
 
 inline const float& GetInitOutput(){return init_output;}
 inline void SetInitOutput(const double& initoutput){init_output=initoutput;}

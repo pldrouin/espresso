@@ -58,13 +58,15 @@ float PIDControl()
 	if(outputsum > 1) outputsum= 1;
 	else if(outputsum < 0) outputsum= 0;
 
-	double output = Kp * error + outputsum - Kd * dtemp / dtime;
+	double pterm = Kp * error;
+	double dterm = -Kd * dtemp / dtime;
+	double output = pterm + outputsum + dterm;
 
 	if(output > 1) output = 1;
 	else if(output < 0) output = 0;
 	PWMSetOutput(output);
 
-	printf("%8.3f: Temp: %6.2f C => %6.2f%%",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output);
+	printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, I=%6.2f%%, D=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*outputsum,100*dterm);
 
 	/*Remember some variables for next time*/
 	lasttemp = tempval;

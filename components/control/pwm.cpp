@@ -40,6 +40,7 @@ void PWMDeinit()
 		keepgoing=0;
 	}
     gpio_set_level((gpio_num_t)CONFIG_PWM_GPIO, 0);
+	printf("PWM deinitialisation completed\n");
 }
 
 void PWMUpdate(void* parameter)

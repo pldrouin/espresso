@@ -61,6 +61,7 @@ void TemperatureDeinit()
 	}
 	tempave=NAN;
 	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
+	printf("Temperature deinitialisation completed\n");
 }
 
 void TempUpdate(void* parameter)

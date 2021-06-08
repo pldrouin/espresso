@@ -89,6 +89,7 @@ void ControllerDeinit()
 		timer_disable_intr(TIMER_GROUP_0, TIMER_0);
 		timer_deinit(TIMER_GROUP_0, TIMER_0);
 		samp_counter=0;
+ 	    printf("Controller deinitialisation completed\n");
 
 	} else {
      	ESP_LOGE(__func_, "Controller is not initialized. Ignoring");

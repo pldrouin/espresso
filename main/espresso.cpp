@@ -99,6 +99,7 @@ void initialize_console(void)
 extern "C" void app_main()
 {
 	initArduino();
+
 	eg=xEventGroupCreate();
 	ControllerSetup();
 

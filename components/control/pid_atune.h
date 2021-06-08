@@ -8,8 +8,6 @@
 #ifndef COMPONENTS_CONTROL_PID_ATUNE_H_
 #define COMPONENTS_CONTROL_PID_ATUNE_H_
 
-#define AUTOTUNE_DEBUG
-
 #include <PID_AutoTune_v0.h>
 
 #include "control_common.h"

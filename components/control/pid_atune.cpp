@@ -79,7 +79,7 @@ float PIDATune()
 		}
 	}
 
-	printf("%8.3f: Temp: %6.2f C => %6.2f%%",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output);
+	printf("%8.3f: Temp: %6.2f C => %6.2f%%\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output);
 
 	return tempval;
 }
