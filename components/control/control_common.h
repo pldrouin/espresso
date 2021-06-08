@@ -14,6 +14,7 @@
 extern EventGroupHandle_t eg;
 extern uint32_t samp_counter;
 extern float pwm_output;
+extern float init_output;
 
 extern float target_temp;
 
@@ -23,5 +24,8 @@ extern float target_temp;
 
 #define MIN_TEMP (10)
 #define MAX_TEMP (130)
+
+inline const float& GetInitOutput(){return init_output;}
+inline void SetInitOutput(const double& initoutput){init_output=initoutput;}
 
 #endif /* COMPONENTS_CONTROL_CONTROL_COMMON_H_ */

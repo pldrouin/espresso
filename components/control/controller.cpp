@@ -13,6 +13,7 @@
 static int keepgoing=0;
 static float (*ControllerAlgorithm)() = NULL;
 static void (*ControllerAlgorithmInit)() = NULL;
+static void (*ControllerAlgorithmDeinit)() = NULL;
 
 static float powersum;
 static float tempsum;
@@ -80,6 +81,8 @@ void ControllerDeinit()
 
 		while(!keepgoing) vTaskDelay(1 / portTICK_PERIOD_MS);
 		keepgoing=0;
+
+		if(ControllerAlgorithmDeinit) ControllerAlgorithmDeinit();
 		TemperatureDeinit();
 		timer_pause(TIMER_GROUP_0, TIMER_0);
 		timer_isr_callback_remove(TIMER_GROUP_0, TIMER_0);
@@ -92,7 +95,7 @@ void ControllerDeinit()
 	}
 }
 
-int ControllerSetAlgorithm(float (*algo)(), void (*init)())
+int ControllerSetAlgorithm(float (*algo)(), void (*init)(), void (*deinit)())
 {
 	if(keepgoing) {
      	ESP_LOGE(__func_, "Cannot change control algorithm when the controller is active. Ignoring");
@@ -100,6 +103,7 @@ int ControllerSetAlgorithm(float (*algo)(), void (*init)())
 	}
 	ControllerAlgorithm=algo;
 	ControllerAlgorithmInit=init;
+	ControllerAlgorithmDeinit=deinit;
 	return 0;
 }
 

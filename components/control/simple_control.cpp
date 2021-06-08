@@ -7,12 +7,6 @@
 
 #include "simple_control.h"
 
-#define SC_STABLE_STATE (4)
-
-void SimpleControlInit()
-{
-}
-
 float SimpleControl()
 {
 	uint32_t temptime=TempTime(), newtemptime;

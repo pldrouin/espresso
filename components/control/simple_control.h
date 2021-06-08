@@ -13,8 +13,6 @@
 #include "pwm.h"
 #include "controller.h"
 
-void SimpleControlInit();
-
 float SimpleControl();
 
 #endif

@@ -28,7 +28,7 @@ int ControllerSetup();
 int ControllerInit();
 void ControllerDeinit();
 
-int ControllerSetAlgorithm(float (*algo)(), void (*init)());
+int ControllerSetAlgorithm(float (*algo)()=NULL, void (*init)()=NULL, void (*deinit)()=NULL);
 
 bool IRAM_ATTR ControllerCallback(void *args);
 
