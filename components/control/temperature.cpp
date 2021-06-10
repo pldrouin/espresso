@@ -98,14 +98,14 @@ void TempUpdate(void* parameter)
 		xEventGroupWaitBits(eg, TEMP_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
     	__atomic_load(&samp_counter, &time, __ATOMIC_RELAXED);
 
-    	if(time!=prevtime+1 && prevtime>0) printf("%s: Error: previous measurement at %u, current at %u\n",__func__,prevtime,time);
+    	//if(time!=prevtime+1 && prevtime>0) printf("%s: Error: previous measurement at %u, current at %u\n",__func__,prevtime,time);
 
 		radcsum-=radcsamples[tidx];
 		v1=ads.readADC_SingleEnded(1);
 		v0=ads.readADC_SingleEnded(0);
 		radcsamples[tidx]=v1/(float)v0;
 
-		if(v1==INT16_MAX || v0==INT16_MAX) printf("%s: Error: ADCs are %u/%u\n",__func__,v1,v0);
+		//if(v1==INT16_MAX || v0==INT16_MAX) printf("%s: Error: ADCs are %u/%u\n",__func__,v1,v0);
   	    //printf("ADCs are %u/%u\n",v1,v0);
 		//printf("Values are %u and %u\n",ads.readADC_SingleEnded(0),ads.readADC_SingleEnded(1));
 		radcsum+=radcsamples[tidx];
@@ -115,7 +115,7 @@ void TempUpdate(void* parameter)
 		for(i=CONFIG_TEMP_AVE_N_MEAS-2; i>=0; --i) radcsum+=radcsamples[i];
 		radcave=radcsum/CONFIG_TEMP_AVE_N_MEAS;
     	tempave=CalcTemp(radcave);
-       	printf("tempave is %7.3f C at %u\n",tempave,time);
+       	//printf("tempave is %7.3f C at %u\n",tempave,time);
 
     	if(tempave < MIN_TEMP || tempave > MAX_TEMP) tempstate=kTempInvalid;
    	    __atomic_store_n(&temptime, time, __ATOMIC_RELEASE);
