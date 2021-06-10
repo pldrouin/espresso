@@ -280,8 +280,78 @@ static void register_set_pid_params(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-/* 'set_init_output' command */
-static int cmd_set_noise_level(int argc, char **argv)
+/* 'set_pid_output_sum' command */
+static int cmd_set_pid_output_sum(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &output_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, output_args.end, argv[0]);
+		return 1;
+	}
+
+	if(output_args.output->count) {
+		PIDSetOutputSum(output_args.output->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_output_sum(void)
+{
+    output_args.output = arg_dbl1(NULL, NULL, "<level>", "PID output sum");
+    output_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_output_sum",
+        .help = "Set PID output sum",
+        .hint = NULL,
+        .func = &cmd_set_pid_output_sum,
+		.argtable = &output_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static struct {
+	struct arg_int *i;
+	struct arg_end *end;
+} int_args;
+
+/* 'set_n_d_ave' command */
+static int cmd_set_n_d_ave(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &int_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, int_args.end, argv[0]);
+		return 1;
+	}
+
+	if(int_args.i->count) {
+
+		if(int_args.i->ival[0]<1 || int_args.i->ival[0] > PID_MAX_D_AVE) {
+			ESP_LOGE("", "The number of D parameter averaging steps must be between 1 and %i inclusively",PID_MAX_D_AVE);
+			return 1;
+		}
+		PIDSetNDAve(int_args.i->ival[0]);
+	}
+    return 0;
+}
+
+static void register_set_n_d_ave(void)
+{
+    int_args.i = arg_int1(NULL, NULL, "<level>", "Number of D parameter averaging steps");
+    int_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_n_d_ave",
+        .help = "Set the number of D parameter averaging steps for the PID algorithm",
+        .hint = NULL,
+        .func = &cmd_set_n_d_ave,
+		.argtable = &int_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_temp_noise' command */
+static int cmd_set_temp_noise(int argc, char **argv)
 {
 	int nerrors = arg_parse(argc, argv, (void **) &output_args);
 	if (nerrors != 0) {
@@ -292,24 +362,24 @@ static int cmd_set_noise_level(int argc, char **argv)
 	if(output_args.output->count) {
 
 		if(output_args.output->dval[0]<0) {
-			ESP_LOGE("", "Output value must be non-negative");
+			ESP_LOGE("", "Noise value must be non-negative");
 			return 1;
 		}
-		PIDATuneSetNoiseLevel(output_args.output->dval[0]);
+		SetTempNoise(output_args.output->dval[0]);
 	}
     return 0;
 }
 
-static void register_set_noise_level(void)
+static void register_set_temp_noise(void)
 {
     output_args.output = arg_dbl1(NULL, NULL, "<level>", "Initial noise level");
     output_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {
-        .command = "set_noise_level",
-        .help = "Set noise level for autotune",
+        .command = "set_temp_noise",
+        .help = "Set temperature noise level",
         .hint = NULL,
-        .func = &cmd_set_noise_level,
+        .func = &cmd_set_temp_noise,
 		.argtable = &output_args
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
@@ -350,11 +420,6 @@ static void register_set_output_step(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-static struct {
-	struct arg_int *i;
-	struct arg_end *end;
-} int_args;
-
 /* 'set_n_lookback_samples' command */
 static int cmd_set_n_lookback_samples(int argc, char **argv)
 {
@@ -386,6 +451,42 @@ static void register_set_n_lookback_samples(void)
         .hint = NULL,
         .func = &cmd_set_n_lookback_samples,
 		.argtable = &int_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static int cmd_start_tuning(int argc, char **argv)
+{
+	PIDATuneStart();
+	return 0;
+}
+
+static void register_start_tuning(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "start_tuning",
+        .help = "Start PID autotune",
+        .hint = NULL,
+        .func = &cmd_start_tuning,
+		.argtable = NULL
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+static int cmd_stop_tuning(int argc, char **argv)
+{
+	PIDATuneStop();
+	return 0;
+}
+
+static void register_stop_tuning(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "stop_tuning",
+        .help = "Stop PID autotune",
+        .hint = NULL,
+        .func = &cmd_stop_tuning,
+		.argtable = NULL
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
@@ -473,7 +574,11 @@ void register_system(void)
 	register_pwm_set_output();
 	register_set_init_output();
 	register_set_pid_params();
-	register_set_noise_level();
+	register_set_pid_output_sum();
+	register_set_n_d_ave();
+	register_set_temp_noise();
 	register_set_output_step();
 	register_set_n_lookback_samples();
+	register_start_tuning();
+	register_stop_tuning();
 }

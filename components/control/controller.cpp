@@ -33,9 +33,8 @@ int ControllerSetup()
 int ControllerInit()
 {
 	if(keepgoing==0) {
-		TemperatureInit();
 
-		if(tempstate != kTempOK) return -1;
+		if(TemperatureInit()) return -1;
 		KillSwitchSetNoKill(true);
 		PWMInit();
 
@@ -65,6 +64,7 @@ int ControllerInit()
 		timer_isr_callback_add(TIMER_GROUP_0, TIMER_0, ControllerCallback, NULL, 0);
 
 		timer_start(TIMER_GROUP_0, TIMER_0);
+ 	    printf("Controller initialisation completed\n");
 
 	} else {
      	ESP_LOGE(__func_, "Controller is already initialized. Ignoring");
@@ -118,8 +118,6 @@ bool IRAM_ATTR ControllerCallback(void *args)
     uint64_t sample=timer_counter_value/ALARM_N_TICKS;
 
     if(sample%(CONFIG_TEMP_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, TEMP_UPDATE_TASK_BIT, &high_task_awoken);
-
-    if(sample%(CONFIG_CONTROL_PWM_CLOCK_TICK_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, PWM_TASK_BIT, &high_task_awoken);
 
     if(sample%(CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, CONTROLLER_UPDATE_TASK_BIT, &high_task_awoken);
 

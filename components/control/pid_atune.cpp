@@ -7,8 +7,7 @@
 
 #include "pid_atune.h"
 
-static double atunenoise=0;
-static double atunestep=0;
+static float atunestep=0;
 static int lookbacknsamples=0;
 static bool tuning;
 static PID_ATune* aTune=NULL;
@@ -18,10 +17,9 @@ void PIDATuneInit()
 	if(!aTune) {
 		aTune=new PID_ATune;
 		aTune->SetControlType(PID_ATune::ZIEGLER_NICHOLS_PID);
-		aTune->SetNoiseBand(atunenoise);
+		aTune->SetNoiseBand(tempnoise);
 		aTune->SetOutputStep(atunestep);
 		aTune->SetLookbackNSamples(lookbacknsamples);
-		tuning=true;
 	}
 }
 
@@ -33,12 +31,21 @@ void PIDATuneDeinit()
 	}
 }
 
-void PIDATuneSetNoiseLevel(const double& level)
+void PIDATuneStart()
 {
-	atunenoise=level;
+	tuning=true;
 }
 
-void PIDATuneSetOutputStep(const double& step)
+void PIDATuneStop()
+{
+	if(tuning) {
+
+		if(aTune) aTune->Cancel();
+		tuning=false;
+	}
+}
+
+void PIDATuneSetOutputStep(const float& step)
 {
 	atunestep=step;
 }
@@ -52,18 +59,19 @@ float PIDATune()
 {
 	uint32_t temptime=TempTime(), newtemptime;
 	float tempval;
-	double output;
+	float output;
 
 	for(;;) {
 		tempval=TempGetTempAve();
 		newtemptime=TempTime();
+		printf("%7.3f C at %u\n",tempval,newtemptime);
 
 		if(newtemptime==temptime) break;
 		temptime=newtemptime;
 	}
 
 	if(tuning) {
-		byte val = aTune->Runtime(tempval, (unsigned long)(temptime / (double)CONFIG_CONTROL_SAMPLING_FREQ * 1000),GetInitOutput(),&output);
+		byte val = aTune->Runtime(tempval, (unsigned long)(temptime / (float)CONFIG_CONTROL_SAMPLING_FREQ * 1000),GetInitOutput(),&output);
 
 		if (val != 0) {
 			printf("Tuning ended!\n");

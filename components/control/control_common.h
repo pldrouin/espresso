@@ -13,8 +13,8 @@
 
 extern EventGroupHandle_t eg;
 extern uint32_t samp_counter;
-extern float pwm_output;
 extern float init_output;
+extern float tempnoise;
 
 extern float target_temp;
 
@@ -26,6 +26,9 @@ extern float target_temp;
 #define MAX_TEMP (135)
 
 inline const float& GetInitOutput(){return init_output;}
-inline void SetInitOutput(const double& initoutput){init_output=initoutput;}
+inline void SetInitOutput(const float& initoutput){init_output=initoutput;}
+
+inline const float& GetTempNoise() {return tempnoise;}
+inline void SetTempNoise(const float& noise) {tempnoise=noise;}
 
 #endif /* COMPONENTS_CONTROL_CONTROL_COMMON_H_ */

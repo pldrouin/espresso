@@ -18,9 +18,10 @@
 
 void PIDATuneInit();
 void PIDATuneDeinit();
+void PIDATuneStart();
+void PIDATuneStop();
 
-void PIDATuneSetNoiseLevel(const double& level);
-void PIDATuneSetOutputStep(const double& step);
+void PIDATuneSetOutputStep(const float& step);
 void PIDATuneSetNLookbackSamples(const int& nlookback);
 
 float PIDATune();

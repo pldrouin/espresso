@@ -20,8 +20,6 @@
 #include "sdkconfig.h"
 #include "control_common.h"
 
-extern volatile float killswitch_output;
-
 void KillSwitchSetup();
 inline void KillSwitchSetNoKill(const bool& state=true){gpio_set_level((gpio_num_t)CONFIG_KILLSWITCH_GPIO, state);}
 
