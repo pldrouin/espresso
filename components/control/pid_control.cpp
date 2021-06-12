@@ -8,6 +8,9 @@
 #include "pid_atune.h"
 
 #define NFULLPOWERITERS (10)
+#define HISTORYTIMELENGTH (20) //In seconds
+
+#define HISTORYLENGTH (HISTORYTIMELENGTH*CONFIG_CONTROL_SAMPLING_FREQ/CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES)
 
 static int state;
 static int dstate;
@@ -17,6 +20,11 @@ static float outputave;
 static float avecycletemp;
 static float tempthreshcorrection;
 static uint32_t outputavestarttime;
+static float outputhistory[HISTORYLENGTH];
+static float minoutput, maxoutput;
+static float lastoutput;
+static int hidx=0;
+static int minoutputidx, maxoutputidx;
 static bool clearednoise;
 static bool highload;
 
@@ -69,9 +77,94 @@ void PIDControlInit()
 	tempthreshcorrection=0;
 	clearednoise=false;
 	highload=false;
+	outputavestarttime=0;
 	memset(lasttemps,0,ndave*sizeof(float));
 	memset(lasttemptimes,0,ndave*sizeof(uint32_t));
-	//PIDSetIntegral(GetInitOutput());
+	memset(outputhistory,0,ndave*sizeof(uint32_t));
+	minoutput=INFINITY;
+	maxoutput=-INFINITY;
+	minoutputidx=-1;
+	maxoutputidx=-1;
+	hidx=0;
+	PIDSetIntegral(GetInitOutput());
+}
+
+void PIDIntegralReset(const float& output)
+{
+	if(output < 0.25) {
+		//Else if the current value is a new maximum
+		if(output>maxoutput) {
+			maxoutputidx=hidx;
+			maxoutput=outputhistory[hidx]=output;
+			printf("%i: Maximum output updated to current value of %7.3f%%\n",hidx,100*maxoutput);
+
+			//If the previous minimum gets overwritten
+			if(minoutputidx==hidx) {
+				minoutputidx=HISTORYLENGTH-1;
+				minoutput=outputhistory[HISTORYLENGTH-1];
+
+				for(int i=HISTORYLENGTH-2; i>=0; --i)
+
+					if(outputhistory[i] < minoutput) {
+						minoutputidx=i;
+						minoutput=outputhistory[i];
+					}
+				printf("%i: Minimum output updated to %7.3f%%\n",hidx,100*minoutput);
+			}
+
+			//Else if the current value is a new minimum
+		} else if(output<minoutput) {
+			minoutputidx=hidx;
+			minoutput=outputhistory[hidx]=output;
+			printf("%i: Minimum output updated to current value of %7.3f%%\n",hidx,100*minoutput);
+
+			//If the previous maximum gets overwritten
+			if(maxoutputidx==hidx) {
+				maxoutputidx=HISTORYLENGTH-1;
+				maxoutput=outputhistory[HISTORYLENGTH-1];
+
+				for(int i=HISTORYLENGTH-2; i>=0; --i)
+
+					if(outputhistory[i] > maxoutput) {
+						maxoutputidx=i;
+						maxoutput=outputhistory[i];
+					}
+				printf("%i: Maximum output updated to %7.3f%%\n",hidx,100*maxoutput);
+			}
+
+			//If the previous maximum gets overwritten
+		} else {
+			outputhistory[hidx]=output;
+
+			if(maxoutputidx==hidx) {
+				maxoutputidx=HISTORYLENGTH-1;
+				maxoutput=outputhistory[HISTORYLENGTH-1];
+
+				for(int i=HISTORYLENGTH-2; i>=0; --i)
+
+					if(outputhistory[i] > maxoutput) {
+						maxoutputidx=i;
+						maxoutput=outputhistory[i];
+					}
+				printf("%i: Maximum output updated to %7.3f%%\n",hidx,100*maxoutput);
+
+				//Else if the previous minimum gets overwritten
+			} else if(minoutputidx==hidx) {
+				minoutputidx=HISTORYLENGTH-1;
+				minoutput=outputhistory[HISTORYLENGTH-1];
+
+				for(int i=HISTORYLENGTH-2; i>=0; --i)
+
+					if(outputhistory[i] < minoutput) {
+						minoutputidx=i;
+						minoutput=outputhistory[i];
+					}
+				printf("%i: Minimum output updated to %7.3f%%\n",hidx,100*minoutput);
+			}
+		}
+
+		hidx=(hidx+1)%HISTORYLENGTH;
+	}
 }
 
 float PIDControl()
@@ -115,7 +208,7 @@ float PIDControl()
 
     if(fabsf(dtemp) < 2*GetTempNoise()) dtemp=0;
 
-    if(state>2+NFULLPOWERITERS) {
+    //if(state>2+NFULLPOWERITERS) {
 
     	//If the noise threshold has not been cleared (power off)
     	if(!clearednoise) {
@@ -156,14 +249,14 @@ float PIDControl()
 
     	float diterm=Ki * -error * dtime;
 
-    	integral += diterm;
-
-    	if(integral > maxintegralvalue) integral=maxintegralvalue;
-    	else if(integral < minintegralvalue) integral=minintegralvalue;
-
     	float pterm = Kp * -error;
     	float dterm = -Kd * dtemp / ddtime;
-    	float output = pterm + integral + dterm;
+
+    	integral += diterm;
+
+    	/*
+    	if(integral > maxintegralvalue) integral=maxintegralvalue;
+    	else if(integral < minintegralvalue) integral=minintegralvalue;
 
     	if(pterm>2*outputave) highload=true;
 
@@ -171,14 +264,31 @@ float PIDControl()
     		highload=false;
     		integral=outputave;
     	}
+    	*/
+    	if(integral >1 ) integral=1;
+    	else if(integral < 0) integral=0;
+
+    	if(integral < minoutput && pterm>0) {
+    		integral=(lastoutput<0.25?lastoutput:0.25);
+    		printf("Integral clamped up to %7.3f%%\n",100*integral);
+
+    	} else if(integral > maxoutput && pterm <0) {
+    		integral=(lastoutput<0.25?lastoutput:0.25);
+    		printf("Integral clamped down to %7.3f%%\n",100*integral);
+    	}
+
+    	float output = pterm + integral + dterm;
 
     	if(output > 1) output = 1;
     	else if(output < 0) output = 0;
+
     	PWMSetOutput(output);
+    	PIDIntegralReset(output);
     	outputsum+=output*dtick;
     	avecycletemp+=tempval*dtick;
     	printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
 
+    	/*
     } else {
 
     	//If the noise threshold has not been cleared (power off)
@@ -226,6 +336,8 @@ float PIDControl()
   			avecycletemp+=tempval*dtick;
     	}
     }
+    */
+    lastoutput=output;
 
 	/*Remember some variables for next time*/
 	return tempval;
