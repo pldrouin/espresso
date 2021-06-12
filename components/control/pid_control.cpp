@@ -7,15 +7,18 @@
 
 #include "pid_atune.h"
 
-#define NFULLPOWERITERS (2)
+#define NFULLPOWERITERS (10)
 
 static int state;
 static int dstate;
 static float integral;
 static float outputsum=0;
 static float outputave;
-static float outputavestarttime;
+static float avecycletemp;
+static float tempthreshcorrection;
+static uint32_t outputavestarttime;
 static bool clearednoise;
+static bool highload;
 
 static float Kp=0, Ki=0, Kd=0;
 static float maxaveoutputscaling=INFINITY, minaveoutputscaling=0;
@@ -63,7 +66,9 @@ void PIDControlInit()
 {
 	dstate=-ndave;
 	state=0;
+	tempthreshcorrection=0;
 	clearednoise=false;
+	highload=false;
 	memset(lasttemps,0,ndave*sizeof(float));
 	memset(lasttemptimes,0,ndave*sizeof(uint32_t));
 	//PIDSetIntegral(GetInitOutput());
@@ -125,7 +130,8 @@ float PIDControl()
     	} else if(error>=0) {
     		clearednoise=false;
     		float newoutputave=outputsum/(temptime-outputavestarttime);
-    		printf("Computed new average output is %7.3f%%, cycle time was %8.3f\n",newoutputave*100,(temptime-outputavestarttime)/(float)CONFIG_CONTROL_SAMPLING_FREQ);
+    		avecycletemp/=temptime-outputavestarttime;
+    		printf("Computed new average output is %7.3f%%, average temp is %7.3f C, cycle time was %8.3f\n",newoutputave*100,avecycletemp,(temptime-outputavestarttime)/(float)CONFIG_CONTROL_SAMPLING_FREQ);
 
     		if(newoutputave > outputave*maxaveoutputscaling) {
     			outputave*=maxaveoutputscaling;
@@ -133,7 +139,7 @@ float PIDControl()
 
     		} else if(newoutputave < outputave*minaveoutputscaling) {
     			outputave*=minaveoutputscaling;
-    			printf("New average output clamped up to %7.3f%%"\n,100*outputave);
+    			printf("New average output clamped up to %7.3f%%\n",100*outputave);
 
     		} else outputave=newoutputave;
     		maxintegralvalue=outputave*maxintegralrvalue;
@@ -144,6 +150,7 @@ float PIDControl()
     		if(minintegralvalue<0) minintegralvalue=0;
     		printf("New allowed range for integral value is [%7.3f%%, %7.3f%%]\n",100*minintegralvalue,100*maxintegralvalue);
     		outputsum=0;
+    		avecycletemp=0;
     		outputavestarttime=temptime;
     	}
 
@@ -158,10 +165,18 @@ float PIDControl()
     	float dterm = -Kd * dtemp / ddtime;
     	float output = pterm + integral + dterm;
 
+    	if(pterm>2*outputave) highload=true;
+
+    	else if(highload && pterm<2*outputave) {
+    		highload=false;
+    		integral=outputave;
+    	}
+
     	if(output > 1) output = 1;
     	else if(output < 0) output = 0;
     	PWMSetOutput(output);
     	outputsum+=output*dtick;
+    	avecycletemp+=tempval*dtick;
     	printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
 
     } else {
@@ -171,15 +186,16 @@ float PIDControl()
     	    printf("%8.3f: Temp: %6.2f C =>   0.00%%\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval);
 
     		//If it is now reached
-    		if(error<=-GetTempNoise()) {
+    		if(error<=-tempthreshcorrection-GetTempNoise()) {
     			//Clear it and turn the power on
     			clearednoise=true;
     			PWMSetOutput(1);
     			outputsum+=dtick;
     		}
+    		avecycletemp+=tempval*dtick;
 
-    	//Else if the noise threshold has been cleared and the target has just been reached (power on)
-    	} else if(error>=0) {
+    	//Else if the noise threshold has been cleared and the target has just been reached (power off)
+    	} else if(error>=-tempthreshcorrection) {
     	    printf("%8.3f: Temp: %6.2f C => 100.00%%\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval);
     		++state;
     		clearednoise=false;
@@ -187,9 +203,11 @@ float PIDControl()
 
     		if(state>1) {
     			outputave=outputsum/(temptime-outputavestarttime);
+    			avecycletemp/=temptime-outputavestarttime;
+    			tempthreshcorrection=avecycletemp-GetTargetTemp();
 
     			if(state==3+NFULLPOWERITERS) integral=outputave;
-    			if(state>1) printf("Computed average output is %7.3f%%, cycle time was %8.3f\n",outputave*100,(temptime-outputavestarttime)/(float)CONFIG_CONTROL_SAMPLING_FREQ);
+    			if(state>1) printf("Computed average output is %7.3f%%, average temp is %7.3f C, cycle time was %8.3f\n",outputave*100,avecycletemp,(temptime-outputavestarttime)/(float)CONFIG_CONTROL_SAMPLING_FREQ);
     			maxintegralvalue=outputave*maxintegralrvalue;
 
     			if(maxintegralvalue>1) maxintegralvalue=1;
@@ -198,12 +216,14 @@ float PIDControl()
     			if(minintegralvalue<0) minintegralvalue=0;
     		}
     		outputsum=0;
+    		avecycletemp=tempval*dtick;
     		outputavestarttime=temptime;
 
     	//Else if the noise threshold has been cleared but the target has not been reached yet
     	} else {
     	    printf("%8.3f: Temp: %6.2f C => 100.00%%\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval);
     		outputsum+=dtick;
+  			avecycletemp+=tempval*dtick;
     	}
     }
 
