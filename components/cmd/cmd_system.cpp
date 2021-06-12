@@ -280,8 +280,51 @@ static void register_set_pid_params(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-/* 'set_pid_output_sum' command */
-static int cmd_set_pid_output_sum(int argc, char **argv)
+static struct {
+	struct arg_dbl *maxaveoutputscalingfactor;
+	struct arg_dbl *minaveoutputscalingfactor;
+	struct arg_dbl *maxintegralrval;
+	struct arg_dbl *minintegralrval;
+	struct arg_end *end;
+} pid_limit_args;
+
+/* 'set_pid_limit_params' command */
+static int cmd_set_pid_limit_params(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &pid_limit_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, pid_limit_args.end, argv[0]);
+		return 1;
+	}
+
+	if(pid_limit_args.maxaveoutputscalingfactor->count && pid_limit_args.minaveoutputscalingfactor->count &&
+			pid_limit_args.maxintegralrval->count && pid_limit_args.minintegralrval->count) {
+
+		PIDSetLimitParams(pid_limit_args.maxaveoutputscalingfactor->dval[0],pid_limit_args.minaveoutputscalingfactor->dval[0],pid_limit_args.maxintegralrval->dval[0],pid_limit_args.minintegralrval->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_limit_params(void)
+{
+    pid_limit_args.maxaveoutputscalingfactor = arg_dbl1(NULL, NULL, "<maxaveoutputscalingfactor>", "Maximum average output scaling factor");
+    pid_limit_args.minaveoutputscalingfactor = arg_dbl1(NULL, NULL, "<minaveoutputscalingfactor>", "Minimum average output scaling factor");
+    pid_limit_args.maxintegralrval = arg_dbl1(NULL, NULL, "<maxintegralrval>", "Maximum integral relative value");
+    pid_limit_args.minintegralrval = arg_dbl1(NULL, NULL, "<minintegralrval>", "Minimum integral relative value");
+    pid_limit_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_limit_params",
+        .help = "Set PID limit parameter values",
+        .hint = NULL,
+        .func = &cmd_set_pid_limit_params,
+		.argtable = &pid_limit_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_pid_integral' command */
+static int cmd_set_pid_integral(int argc, char **argv)
 {
 	int nerrors = arg_parse(argc, argv, (void **) &output_args);
 	if (nerrors != 0) {
@@ -290,21 +333,21 @@ static int cmd_set_pid_output_sum(int argc, char **argv)
 	}
 
 	if(output_args.output->count) {
-		PIDSetOutputSum(output_args.output->dval[0]);
+		PIDSetIntegral(output_args.output->dval[0]);
 	}
     return 0;
 }
 
-static void register_set_pid_output_sum(void)
+static void register_set_pid_integral(void)
 {
     output_args.output = arg_dbl1(NULL, NULL, "<level>", "PID output sum");
     output_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {
-        .command = "set_pid_output_sum",
-        .help = "Set PID output sum",
+        .command = "set_pid_integral",
+        .help = "Set PID integral",
         .hint = NULL,
-        .func = &cmd_set_pid_output_sum,
+        .func = &cmd_set_pid_integral,
 		.argtable = &output_args
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
@@ -574,7 +617,8 @@ void register_system(void)
 	register_pwm_set_output();
 	register_set_init_output();
 	register_set_pid_params();
-	register_set_pid_output_sum();
+	register_set_pid_limit_params();
+	register_set_pid_integral();
 	register_set_n_d_ave();
 	register_set_temp_noise();
 	register_set_output_step();

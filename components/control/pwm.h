@@ -33,7 +33,7 @@ void PWMDeinit();
 inline uint32_t PWMGetOutputLevel(){uint32_t ret; __atomic_load(&pwm_output, &ret, __ATOMIC_RELAXED); return ret;}
 inline float PWMGetOutput(){return PWMGetOutputLevel()/(float)PWM_MAX_LEVEL;}
 inline void PWMSetOutputLevel(const uint32_t& level){__atomic_store(&pwm_output, &level, __ATOMIC_RELAXED);}
-inline void PWMSetOutput(const float& output){__atomic_store_n(&pwm_output, (uint32_t)(output*PWM_MAX_LEVEL), __ATOMIC_RELAXED);}
+inline void PWMSetOutput(float output){if(output<0) output=0; else if(output>1) output=1; __atomic_store_n(&pwm_output, (uint32_t)(output*PWM_MAX_LEVEL), __ATOMIC_RELAXED);}
 
 bool IRAM_ATTR PWMCallback(void *args);
 

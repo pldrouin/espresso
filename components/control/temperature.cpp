@@ -84,7 +84,6 @@ void TemperatureDeinit()
 void TempUpdate(void* parameter)
 {
 	int i;
-	uint32_t prevtime=0;
 	uint32_t time;
 	uint16_t v1, v0;
 

@@ -25,6 +25,7 @@ void PIDATuneInit()
 
 void PIDATuneDeinit()
 {
+	PIDATuneStop();
 	if(aTune) {
 		delete aTune;
 		aTune=NULL;
@@ -64,7 +65,6 @@ float PIDATune()
 	for(;;) {
 		tempval=TempGetTempAve();
 		newtemptime=TempTime();
-		printf("%7.3f C at %u\n",tempval,newtemptime);
 
 		if(newtemptime==temptime) break;
 		temptime=newtemptime;
