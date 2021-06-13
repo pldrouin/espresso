@@ -281,10 +281,10 @@ static void register_set_pid_params(void)
 }
 
 static struct {
-	struct arg_dbl *maxaveoutputscalingfactor;
-	struct arg_dbl *minaveoutputscalingfactor;
-	struct arg_dbl *maxintegralrval;
-	struct arg_dbl *minintegralrval;
+	struct arg_dbl *maxintegralval;
+	struct arg_dbl *minintegralval;
+	struct arg_dbl *maxmidoutputdriftup;
+	struct arg_dbl *maxmidoutputdriftdown;
 	struct arg_end *end;
 } pid_limit_args;
 
@@ -297,20 +297,19 @@ static int cmd_set_pid_limit_params(int argc, char **argv)
 		return 1;
 	}
 
-	if(pid_limit_args.maxaveoutputscalingfactor->count && pid_limit_args.minaveoutputscalingfactor->count &&
-			pid_limit_args.maxintegralrval->count && pid_limit_args.minintegralrval->count) {
+	if(pid_limit_args.maxintegralval->count && pid_limit_args.minintegralval->count && pid_limit_args.maxmidoutputdriftup->count && pid_limit_args.maxmidoutputdriftdown->count) {
 
-		PIDSetLimitParams(pid_limit_args.maxaveoutputscalingfactor->dval[0],pid_limit_args.minaveoutputscalingfactor->dval[0],pid_limit_args.maxintegralrval->dval[0],pid_limit_args.minintegralrval->dval[0]);
+		PIDSetLimitParams(pid_limit_args.maxintegralval->dval[0],pid_limit_args.minintegralval->dval[0],pid_limit_args.maxmidoutputdriftup->dval[0],pid_limit_args.maxmidoutputdriftdown->dval[0]);
 	}
     return 0;
 }
 
 static void register_set_pid_limit_params(void)
 {
-    pid_limit_args.maxaveoutputscalingfactor = arg_dbl1(NULL, NULL, "<maxaveoutputscalingfactor>", "Maximum average output scaling factor");
-    pid_limit_args.minaveoutputscalingfactor = arg_dbl1(NULL, NULL, "<minaveoutputscalingfactor>", "Minimum average output scaling factor");
-    pid_limit_args.maxintegralrval = arg_dbl1(NULL, NULL, "<maxintegralrval>", "Maximum integral relative value");
-    pid_limit_args.minintegralrval = arg_dbl1(NULL, NULL, "<minintegralrval>", "Minimum integral relative value");
+    pid_limit_args.maxintegralval = arg_dbl1(NULL, NULL, "<maxintegralval>", "Maximum integral value");
+    pid_limit_args.minintegralval = arg_dbl1(NULL, NULL, "<minintegralval>", "Minimum integral value");
+    pid_limit_args.maxmidoutputdriftup = arg_dbl1(NULL, NULL, "<maxmidoutputdriftup>", "Maximum quantity of output the integral value is allowed to be up compared to the mid output range without triggering an integral reset");
+    pid_limit_args.maxmidoutputdriftdown = arg_dbl1(NULL, NULL, "<maxmidoutputdriftdown>", "Maximum quantity of output the integral value is allowed to be down compared to the mid output range without triggering an integral reset");
     pid_limit_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {

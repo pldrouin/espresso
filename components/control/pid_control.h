@@ -19,7 +19,7 @@
 #include "controller.h"
 
 void PIDSetParams(const float& kp, const float& ki, const float& kd);
-void PIDSetLimitParams(const float& maxaveoutputscalingfactor=INFINITY, const float& minaveoutputscalingfactor=0, const float& maxintegralrval=INFINITY, const float& minintegralrval=0);
+void PIDSetLimitParams(const float& maxintegralval=INFINITY, const float& minintegralval=0, const float& maxmidoutputdriftup=INFINITY, const float& maxmidoutputdriftdown=INFINITY);
 void PIDSetNDAve(const int& n);
 void PIDSetIntegral(const float& theintegral);
 
