@@ -27,7 +27,8 @@ void PIDPrintParams();
 
 void PIDControlInit();
 
-void PIDIntegralReset(const float& output);
+bool PIDOutputHistoryReset(bool force=false);
+void PIDOutputHistoryUpdate(const float& output);
 
 float PIDControl();
 

@@ -21,13 +21,14 @@ float SimpleControl()
 	}
 	printf("%8.3f: Temp: %6.2f C vs %6.2f C setpoint => ",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,GetTargetTemp());
 
-	if(tempval < GetTargetTemp()) {
+	if(tempval < GetTargetTemp()-GetTempNoise()) {
 		printf("On\n");
 		PWMSetOutput(1);
 
-	} else {
+	} else if(tempval >= GetTargetTemp()){
 		printf("Off\n");
 		PWMSetOutput(0);
-	}
+
+	} else printf("Noise band\n");
 	return tempval;
 }

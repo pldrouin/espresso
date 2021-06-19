@@ -34,6 +34,7 @@ void PWMSetup()
 	/* Set the GPIO as a push/pull output */
 	gpio_set_direction((gpio_num_t)CONFIG_PWM_GPIO, GPIO_MODE_OUTPUT);
 	gpio_set_pull_mode((gpio_num_t)CONFIG_PWM_GPIO, GPIO_FLOATING);
+	PWMSetOutput(0);
 }
 
 void PWMInit()

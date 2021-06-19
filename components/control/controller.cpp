@@ -24,9 +24,9 @@ float target_temp=0;
 
 int ControllerSetup()
 {
+	PWMSetup();
 	KillSwitchSetup();
 	TemperatureSetup();
-	PWMSetup();
 	return 0;
 }
 
