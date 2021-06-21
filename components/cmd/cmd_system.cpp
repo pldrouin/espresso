@@ -241,9 +241,11 @@ static void register_set_init_output(void)
 }
 
 static struct {
-	struct arg_dbl *kp;
-	struct arg_dbl *ki;
-	struct arg_dbl *kd;
+	struct arg_dbl *Ki;
+	struct arg_dbl *Theta0;
+	struct arg_dbl *Kcfact;
+	struct arg_dbl *Tifact;
+	struct arg_dbl *Tdfact;
 	struct arg_end *end;
 } pid_args;
 
@@ -256,18 +258,20 @@ static int cmd_set_pid_params(int argc, char **argv)
 		return 1;
 	}
 
-	if(pid_args.kp->count && pid_args.ki->count && pid_args.kd->count) {
+	if(pid_args.Ki->count && pid_args.Theta0->count && pid_args.Kcfact->count && pid_args.Tifact->count && pid_args.Tdfact->count) {
 
-		PIDSetParams(pid_args.kp->dval[0],pid_args.ki->dval[0],pid_args.kd->dval[0]);
+		PIDSetParams(pid_args.Ki->dval[0],pid_args.Theta0->dval[0],pid_args.Kcfact->dval[0],pid_args.Tifact->dval[0],pid_args.Tdfact->dval[0]);
 	}
     return 0;
 }
 
 static void register_set_pid_params(void)
 {
-    pid_args.kp = arg_dbl1(NULL, NULL, "<kp>", "kp parameter value");
-    pid_args.ki = arg_dbl1(NULL, NULL, "<ki>", "ki parameter value");
-    pid_args.kd = arg_dbl1(NULL, NULL, "<kd>", "kd parameter value");
+    pid_args.Ki = arg_dbl1(NULL, NULL, "<Ki>", "Open loop integrating gain. Ramp rate of the PID input in %/s divided by a fixed change in the PID output in % for an integrating process.");
+    pid_args.Theta0 = arg_dbl1(NULL, NULL, "<Theta0>", "Total loop deadtime");
+    pid_args.Kcfact = arg_dbl1(NULL, NULL, "<Kcfact>", "Factor when computing the PID gain, expressed as Kcfact/(Ki*Theta0). A value of 0.5 can be good");
+    pid_args.Tifact = arg_dbl1(NULL, NULL, "<Tifact>", "Factor when computing the PID reset time, expressed as Tifact*Theta0. A value of 4 can be good");
+    pid_args.Tdfact = arg_dbl1(NULL, NULL, "<Tdfact>", "Factor when computing the PID derivative time, expressed as Tdfact*Tehta0. A value of 0.5 can be good");
     pid_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {
@@ -283,8 +287,6 @@ static void register_set_pid_params(void)
 static struct {
 	struct arg_dbl *maxintegralval;
 	struct arg_dbl *minintegralval;
-	struct arg_dbl *maxmidoutputdriftup;
-	struct arg_dbl *maxmidoutputdriftdown;
 	struct arg_end *end;
 } pid_limit_args;
 
@@ -297,9 +299,9 @@ static int cmd_set_pid_limit_params(int argc, char **argv)
 		return 1;
 	}
 
-	if(pid_limit_args.maxintegralval->count && pid_limit_args.minintegralval->count && pid_limit_args.maxmidoutputdriftup->count && pid_limit_args.maxmidoutputdriftdown->count) {
+	if(pid_limit_args.maxintegralval->count && pid_limit_args.minintegralval->count) {
 
-		PIDSetLimitParams(pid_limit_args.maxintegralval->dval[0],pid_limit_args.minintegralval->dval[0],pid_limit_args.maxmidoutputdriftup->dval[0],pid_limit_args.maxmidoutputdriftdown->dval[0]);
+		PIDSetLimitParams(pid_limit_args.maxintegralval->dval[0],pid_limit_args.minintegralval->dval[0]);
 	}
     return 0;
 }
@@ -308,8 +310,6 @@ static void register_set_pid_limit_params(void)
 {
     pid_limit_args.maxintegralval = arg_dbl1(NULL, NULL, "<maxintegralval>", "Maximum integral value");
     pid_limit_args.minintegralval = arg_dbl1(NULL, NULL, "<minintegralval>", "Minimum integral value");
-    pid_limit_args.maxmidoutputdriftup = arg_dbl1(NULL, NULL, "<maxmidoutputdriftup>", "Maximum quantity of output the integral value is allowed to be up compared to the mid output range without triggering an integral reset");
-    pid_limit_args.maxmidoutputdriftdown = arg_dbl1(NULL, NULL, "<maxmidoutputdriftdown>", "Maximum quantity of output the integral value is allowed to be down compared to the mid output range without triggering an integral reset");
     pid_limit_args.end = arg_end(1);
 
     const esp_console_cmd_t cmd = {
@@ -318,6 +318,76 @@ static void register_set_pid_limit_params(void)
         .hint = NULL,
         .func = &cmd_set_pid_limit_params,
 		.argtable = &pid_limit_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_pid_d_filter' command */
+static int cmd_set_pid_d_filter(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &output_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, output_args.end, argv[0]);
+		return 1;
+	}
+
+	if(output_args.output->count) {
+
+		if(output_args.output->dval[0]<0) {
+			ESP_LOGE("", "filter Td factor value must be non-negative");
+			return 1;
+		}
+		PIDSetDFilter(output_args.output->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_d_filter(void)
+{
+    output_args.output = arg_dbl1(NULL, NULL, "<Td filter factor>", "filter Td factor");
+    output_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_d_filter",
+        .help = "Set PID derivative filtering period relative to Td",
+        .hint = NULL,
+        .func = &cmd_set_pid_d_filter,
+		.argtable = &output_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_pid_d_filter' command */
+static int cmd_set_pid_deadband(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &output_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, output_args.end, argv[0]);
+		return 1;
+	}
+
+	if(output_args.output->count) {
+
+		if(output_args.output->dval[0]<0) {
+			ESP_LOGE("", "deadband value must be non-negative");
+			return 1;
+		}
+		PIDSetDeadband(output_args.output->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_deadband(void)
+{
+    output_args.output = arg_dbl1(NULL, NULL, "<deadband>", "Deadband value in C");
+    output_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_deadband",
+        .help = "Set PID deadband value where integral updates are disabled",
+        .hint = NULL,
+        .func = &cmd_set_pid_deadband,
+		.argtable = &output_args
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
@@ -356,41 +426,6 @@ static struct {
 	struct arg_int *i;
 	struct arg_end *end;
 } int_args;
-
-/* 'set_n_d_ave' command */
-static int cmd_set_n_d_ave(int argc, char **argv)
-{
-	int nerrors = arg_parse(argc, argv, (void **) &int_args);
-	if (nerrors != 0) {
-		arg_print_errors(stderr, int_args.end, argv[0]);
-		return 1;
-	}
-
-	if(int_args.i->count) {
-
-		if(int_args.i->ival[0]<1 || int_args.i->ival[0] > PID_MAX_D_AVE) {
-			ESP_LOGE("", "The number of D parameter averaging steps must be between 1 and %i inclusively",PID_MAX_D_AVE);
-			return 1;
-		}
-		PIDSetNDAve(int_args.i->ival[0]);
-	}
-    return 0;
-}
-
-static void register_set_n_d_ave(void)
-{
-    int_args.i = arg_int1(NULL, NULL, "<level>", "Number of D parameter averaging steps");
-    int_args.end = arg_end(1);
-
-    const esp_console_cmd_t cmd = {
-        .command = "set_n_d_ave",
-        .help = "Set the number of D parameter averaging steps for the PID algorithm",
-        .hint = NULL,
-        .func = &cmd_set_n_d_ave,
-		.argtable = &int_args
-    };
-    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
-}
 
 /* 'set_temp_noise' command */
 static int cmd_set_temp_noise(int argc, char **argv)
@@ -617,8 +652,9 @@ void register_system(void)
 	register_set_init_output();
 	register_set_pid_params();
 	register_set_pid_limit_params();
+	register_set_pid_d_filter();
+	register_set_pid_deadband();
 	register_set_pid_integral();
-	register_set_n_d_ave();
 	register_set_temp_noise();
 	register_set_output_step();
 	register_set_n_lookback_samples();

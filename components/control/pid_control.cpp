@@ -7,55 +7,47 @@
 
 #include "pid_atune.h"
 
-#define NFULLPOWERITERS (10)
-#define HISTORYTIMELENGTH (30) //In seconds
-
-#define HISTORYLENGTH (HISTORYTIMELENGTH*CONFIG_CONTROL_SAMPLING_FREQ/CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES)
-
-static int dstate;
 static float integral;
+static float dterm=0;
+static float lasttemp;
+static uint32_t lasttemptime;
 static float outputsum=0;
 static uint32_t outputavestarttime=0;
 static float avecycletemp;
-static float outputhistory[HISTORYLENGTH];
-static float minoutput, maxoutput, midoutput;
-static float lastoutput;
-static int hidx=0;
-static int hlength=0;
-static int minoutputidx, maxoutputidx;
-static int state;
-static int substate;
 static bool clearednoise;
 
-static float Kp=0, Ki=0, Kd=0;
+static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0, Tf=0;
 static float maxintegralvalue=1, minintegralvalue=0;
-static float maxmiddriftup=INFINITY, maxmiddriftdown=-INFINITY;
+static float deadband=0;
+static float minerrorlevel=0.05;
+static float curerrorlevel;
+static uint32_t maxintmultiplicator=64;
+static uint32_t curintmultiplicator;
 
-static float lasttemps[PID_MAX_D_AVE];
-static uint32_t lasttemptimes[PID_MAX_D_AVE];
-static int ndave=1;
-static int didx=0;
-
-void PIDSetParams(const float& kp, const float& ki, const float& kd)
+void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact, const float& Tifact, const float& Tdfact)
 {
-	Kp=kp;
-	Ki=ki;
-	Kd=kd;
+	Pgain=Kcfact/(Ki*Theta0);
+	Ti=Tifact*Theta0;
+	Igain=Pgain/Ti;
+	Td=Tdfact*Theta0;
+	Dgain=Pgain*Td;
+	printf("Pgain (Kc)=%10.6f, Igain=%10.6f/s, Dgain=%10.6fs, Ti=%7.4fs, Td=%7.4fs\n",Pgain,Igain,Dgain,Ti,Td);
 }
 
-void PIDSetLimitParams(const float& maxintegralval, const float& minintegralval, const float& maxmidoutputdriftup, const float& maxmidoutputdriftdown)
+void PIDSetLimitParams(const float& maxintegralval, const float& minintegralval)
 {
 	maxintegralvalue=maxintegralval;
 	minintegralvalue=minintegralval;
-	maxmiddriftup=maxmidoutputdriftup;
-	maxmiddriftdown=maxmidoutputdriftdown;
 }
 
-void PIDSetNDAve(const int& n)
+void PIDSetDFilter(const float& Tdfilterfact)
 {
-	ndave=n;
-	memset(lasttemps,0,ndave*sizeof(float));
-	memset(lasttemptimes,0,ndave*sizeof(uint32_t));
+	Tf=Tdfilterfact*Td;
+}
+
+void PIDSetDeadband(const float& dband)
+{
+	deadband=dband;
 }
 
 void PIDSetIntegral(const float& theintegral)
@@ -65,159 +57,30 @@ void PIDSetIntegral(const float& theintegral)
 
 void PIDPrintParams()
 {
-	printf("Kp=%22.15e, Ki=%22.15e, Kd=%22.15e\n",Kp,Ki,Kd);
+	printf("Pgain (Kc)=%10.6f, Igain=%10.6f/s, Dgain=%10.6fs, Ti=%7.4fs, Td=%7.4fs, Tf=%7.4fs, deadband=%5.3f C\n",Pgain,Igain,Dgain,Ti,Td,Tf,deadband);
 }
 
 void PIDControlInit()
 {
-	dstate=-ndave;
 	clearednoise=false;
 	outputavestarttime=0;
-	state=0;
-	memset(lasttemps,0,ndave*sizeof(float));
-	memset(lasttemptimes,0,ndave*sizeof(uint32_t));
-	PIDOutputHistoryReset(true);
 	PIDSetIntegral(GetInitOutput());
-}
-
-bool PIDOutputHistoryReset(bool force)
-{
-	if(hlength==HISTORYLENGTH || force) {
-		minoutput=0;
-		maxoutput=0;
-		midoutput=0;
-	    minoutputidx=0;
-	    maxoutputidx=0;
-		hlength=0;
-		hidx=-1;
-		printf("Resetting output history!\n");
-		return true;
-	}
-	return false;
-}
-
-void PIDOutputHistoryUpdate(const float& output)
-{
-	int i;
-
-	if(hlength < HISTORYLENGTH) {
-		++hidx;
-		memmove(outputhistory+hidx+1,outputhistory+hidx,(hlength-hidx)*sizeof(float));
-		++hlength;
-	}
-
-	if(hlength==1) {
-		midoutput=minoutput=maxoutput=output;
-		printf("%i: First output history element set to %7.3f%%\n",hidx,100*output);
-
-		//Else if the current value is a new maximum
-	} else if(output>maxoutput) {
-		maxoutputidx=hidx;
-		maxoutput=outputhistory[hidx]=output;
-		midoutput=0.5*(minoutput+maxoutput);
-		printf("%i: Maximum output updated to current value of %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*maxoutput,100*minoutput,100*midoutput,100*maxoutput);
-
-		//If the previous minimum gets overwritten
-		if(minoutputidx==hidx) {
-			minoutputidx=HISTORYLENGTH-1;
-			minoutput=outputhistory[HISTORYLENGTH-1];
-
-			for(i=HISTORYLENGTH-2; i>=0; --i)
-
-				if(outputhistory[i] < minoutput) {
-					minoutputidx=i;
-					minoutput=outputhistory[i];
-				}
-			midoutput=0.5*(minoutput+maxoutput);
-			printf("%i: Minimum output updated to %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*minoutput,100*minoutput,100*midoutput,100*maxoutput);
-		}
-
-		//Else if the current value is a new minimum
-	} else if(output<minoutput) {
-		minoutputidx=hidx;
-		minoutput=outputhistory[hidx]=output;
-		midoutput=0.5*(minoutput+maxoutput);
-		printf("%i: Minimum output updated to current value of %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*minoutput,100*minoutput,100*midoutput,100*maxoutput);
-
-		//If the previous maximum gets overwritten
-		if(maxoutputidx==hidx) {
-			maxoutputidx=HISTORYLENGTH-1;
-			maxoutput=outputhistory[HISTORYLENGTH-1];
-
-			for(i=HISTORYLENGTH-2; i>=0; --i)
-
-				if(outputhistory[i] > maxoutput) {
-					maxoutputidx=i;
-					maxoutput=outputhistory[i];
-				}
-			midoutput=0.5*(minoutput+maxoutput);
-			printf("%i: Maximum output updated to %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*maxoutput,100*minoutput,100*midoutput,100*maxoutput);
-		}
-
-		//If the previous maximum gets overwritten
-	} else {
-		outputhistory[hidx]=output;
-
-		if(maxoutputidx==hidx) {
-			maxoutputidx=HISTORYLENGTH-1;
-			maxoutput=outputhistory[HISTORYLENGTH-1];
-
-			for(i=HISTORYLENGTH-2; i>=0; --i)
-
-				if(outputhistory[i] > maxoutput) {
-					maxoutputidx=i;
-					maxoutput=outputhistory[i];
-				}
-			midoutput=0.5*(minoutput+maxoutput);
-			printf("%i: Maximum output updated to %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*maxoutput,100*minoutput,100*midoutput,100*maxoutput);
-
-			//Else if the previous minimum gets overwritten
-		} else if(minoutputidx==hidx) {
-			minoutputidx=HISTORYLENGTH-1;
-			minoutput=outputhistory[HISTORYLENGTH-1];
-
-			for(i=HISTORYLENGTH-2; i>=0; --i)
-
-				if(outputhistory[i] < minoutput) {
-					minoutputidx=i;
-					minoutput=outputhistory[i];
-				}
-			midoutput=0.5*(minoutput+maxoutput);
-			printf("%i: Minimum output updated to %7.3f%% (%7.3f%%, %7.3f%%, %7.3f%%)\n",hidx,100*minoutput,100*minoutput,100*midoutput,100*maxoutput);
-		}
-	}
-	hidx=(hidx+1)%hlength;
+	dterm=0;
+	curintmultiplicator=1;
+	curerrorlevel=minerrorlevel;
+	lasttemptime=TempTime();
+	lasttemp=TempGetTempAve();
 }
 
 float PIDControl()
 {
-	uint32_t temptime=TempTime(), newtemptime;
-	float tempval;
+	//Same thread as temperature, so we don't need to use non-blocking algorithms
+	uint32_t temptime=TempTime();
+	float tempval=TempGetTempAve();
 
-	for(;;) {
-		tempval=TempGetTempAve();
-		newtemptime=TempTime();
-
-		if(newtemptime==temptime) break;
-		temptime=newtemptime;
-	}
-
-	uint32_t dtick = temptime - lasttemptimes[(didx+ndave-1)%ndave];
+	uint32_t dtick = temptime - lasttemptime;
 	float dtime = dtick / (float)CONFIG_CONTROL_SAMPLING_FREQ;
-	float ddtime = (temptime - lasttemptimes[didx]) / (float)CONFIG_CONTROL_SAMPLING_FREQ;
 	float error = tempval - GetTargetTemp();
-	float dtemp = (tempval - lasttemps[didx]);
-
-	lasttemptimes[didx]=temptime;
-	lasttemps[didx]=tempval;
-	didx=(didx+1)%ndave;
-
-	if(dstate<0) {
-		++dstate;
-		return tempval;
-	}
-
-	if(fabsf(dtemp) < 2*GetTempNoise()) dtemp=0;
 
 	//If the noise threshold has not been cleared (power off)
 	if(!clearednoise) {
@@ -240,76 +103,71 @@ float PIDControl()
 		outputavestarttime=temptime;
 	}
 
-	float diterm, fastditerm;
+	float pterm = Pgain * -error;
+	dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 
-	if(Ki!=0) {
-
-		/*if(error < -0.25) {
-			diterm=(maxintegralvalue-minintegralvalue)/HISTORYLENGTH;
-			fastditerm=16 * Ki * -error * dtime;
-
-			if(diterm<fastditerm) diterm=fastditerm;
-
-		} else if(error > 0.25) {
-			diterm=-(maxintegralvalue-minintegralvalue)/HISTORYLENGTH;
-			fastditerm=16 * Ki * -error * dtime;
-
-			if(diterm>fastditerm) diterm=fastditerm;
-
-		} else*/ if (fabsf(error) > 0.10) diterm=16 * Ki * -error * dtime;
-
-		else diterm=Ki * -error * dtime;
-
-		integral+=diterm;
-
-	} else diterm=0;
-
-	float pterm = Kp * -error;
-	float dterm = -Kd * dtemp / ddtime;
-
-	/*
-	if(error < 0 && (integral < minoutput || integral < midoutput-maxmiddriftdown)) {
-
-		if(integral < minoutput) {
-			integral=lastoutput;
-			PIDOutputHistoryReset();
-
-		} else integral=(lastoutput<midoutput?lastoutput:midoutput);
-		printf("Integral clamped up to %7.3f%%\n",100*integral);
-
-	} else if(error > 0 && (integral > maxoutput || integral > midoutput+maxmiddriftup)) {
-
-		if(integral > maxoutput) {
-			integral=lastoutput;
-			PIDOutputHistoryReset();
-
-		} else integral=0;
-		printf("Integral clamped down to %7.3f%%\n",100*integral);
-
-	} else integral += diterm;
-	*/
-
-	if(integral > maxintegralvalue) integral=maxintegralvalue;
-	else if(integral < minintegralvalue) integral=minintegralvalue;
-
+	//Start by computing the new output using the previous integral value
 	float output = pterm + integral + dterm;
+	const float abserror=fabsf(error);
 
-	//if(output > 1) output = 1;
-	if(output > 1) {
+	//If outside the deadband, the integral value needs to be updated
+	if(abserror > deadband) {
 
-		if(output < 2) integral-=output-1;
-		output = 1;
+		if(abserror > curerrorlevel && curintmultiplicator < maxintmultiplicator) {
+			curerrorlevel*=2;
+			curintmultiplicator<<=1;
 
-	} else if(output < 0) output = 0;
+		} else if(abserror < 0.5*curerrorlevel && curintmultiplicator > 1) {
+			curerrorlevel*=0.5;
+			curintmultiplicator>>=1;
+		}
+		float diterm=Igain * -error * curintmultiplicator * dtime; //Default integral increment
+
+		//Ensure the integral value remains within the defined limits
+		if(integral+diterm > maxintegralvalue) diterm=maxintegralvalue-integral;
+		else if(integral+diterm < minintegralvalue) diterm=minintegralvalue-integral;
+		//Attempt of a new output value using the updated integral value
+		float outputp = output + diterm;
+
+		//Dynamic reset limit
+		//If the diterm can be included without saturating, add it to the integral
+		if(outputp <= 1 && outputp >= 0) {
+			integral += diterm;
+			output = outputp;
+
+		//Else if reaching saturation somewhere along the way between the previous integral value and the new integral value,
+		//only go up to saturation and stop the integral there
+		} else if(output < 1 && output > 0) {
+
+			if(outputp > 1) {
+				integral += 1-output;
+				output = 1;
+
+			} else { //outputp < 0
+				integral -= output;
+				output = 0;
+			}
+
+		} else if(output > 1) output=1;
+
+		//Else if output < 0
+		else output=0;
+	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%% (x%2u), D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,curintmultiplicator,100*dterm,100*integral);
+
+	} else {
+
+		if(output > 1) output=1;
+
+		else if(output < 0) output=0;
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%< (x 0), D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*dterm,100*integral);
+	}
 
 	PWMSetOutput(output);
-	PIDOutputHistoryUpdate(output);
 	outputsum+=output*dtick;
 	avecycletemp+=tempval*dtick;
-	printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
 
-	lastoutput=output;
+	lasttemp = tempval;
+	lasttemptime = temptime;
 
-	/*Remember some variables for next time*/
 	return tempval;
 }

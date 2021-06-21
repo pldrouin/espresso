@@ -10,6 +10,7 @@
 #define TIMER_DIVIDER         (10000)  //  Hardware timer clock divider
 #define ALARM_N_TICKS		  (TIMER_BASE_CLK / TIMER_DIVIDER / CONFIG_CONTROL_SAMPLING_FREQ)
 
+static uint32_t samp_counter=0;
 static int keepgoing=0;
 static float (*ControllerAlgorithm)() = NULL;
 static void (*ControllerAlgorithmInit)() = NULL;
@@ -41,7 +42,7 @@ int ControllerInit()
 		if(ControllerAlgorithmInit) ControllerAlgorithmInit();
 
 		keepgoing=1;
-		xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, 5, NULL);
+		xTaskCreate(ControllerUpdate, "Controller Update", 4096, NULL, configMAX_PRIORITIES-1, NULL);
 
 		timer_config_t config = {
 				.alarm_en = TIMER_ALARM_EN,
@@ -113,13 +114,7 @@ bool IRAM_ATTR ControllerCallback(void *args)
 	uint64_t timer_counter_value = timer_group_get_counter_value_in_isr(TIMER_GROUP_0, TIMER_0);
     BaseType_t high_task_awoken = pdFALSE;
 
-    __atomic_add_fetch(&samp_counter, 1, __ATOMIC_RELAXED);
-
-    uint64_t sample=timer_counter_value/ALARM_N_TICKS;
-
-    if(sample%(CONFIG_TEMP_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, TEMP_UPDATE_TASK_BIT, &high_task_awoken);
-
-    if(sample%(CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES) == 0) xEventGroupSetBitsFromISR(eg, CONTROLLER_UPDATE_TASK_BIT, &high_task_awoken);
+    xEventGroupSetBitsFromISR(eg, CONTROLLER_UPDATE_TASK_BIT, &high_task_awoken);
 
     timer_counter_value += ALARM_N_TICKS;
     timer_group_set_alarm_value_in_isr(TIMER_GROUP_0, TIMER_0, timer_counter_value);
@@ -131,25 +126,33 @@ void ControllerUpdate(void* parameter)
 	while(keepgoing==1) {
 		xEventGroupWaitBits(eg, CONTROLLER_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
 
-		if(TempState() != kTempOK) {
-			KillSwitchSetNoKill(false);
-			ControllerDeinit();
-			ESP_LOGE(__func_, "Controller has ended");
-			return;
+		if(samp_counter%CONFIG_TEMP_N_SAMPLES == 0) {
+			TempUpdate(samp_counter);
+
+			if(TempState() != kTempOK) {
+				KillSwitchSetNoKill(false);
+				ControllerDeinit();
+				ESP_LOGE(__func_, "Controller has ended");
+				return;
+			}
 		}
 
 		if(ControllerAlgorithm) {
-			float tempval=ControllerAlgorithm();
-			bool stats;
-			__atomic_load(&showstats, &stats, __ATOMIC_ACQUIRE);
 
-			if(stats) {
-				powersum+=PWMGetOutput();
-				tempsum+=tempval;
-				++nmeas;
-				printf("\t(average temp %7.3f C, power %7.3f%%)\n",tempsum/nmeas,100*powersum/nmeas);
+			if(samp_counter%CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES == 0) {
+				float tempval=ControllerAlgorithm();
+				bool stats;
+				__atomic_load(&showstats, &stats, __ATOMIC_ACQUIRE);
+
+				if(stats) {
+					powersum+=PWMGetOutput();
+					tempsum+=tempval;
+					++nmeas;
+					printf("\t(average temp %7.3f C, power %7.3f%%)\n",tempsum/nmeas,100*powersum/nmeas);
+				}
 			}
 		}
+		++samp_counter;
 	}
 	keepgoing=-1;
 	vTaskDelete(NULL);

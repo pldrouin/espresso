@@ -12,7 +12,6 @@
 #include "freertos/event_groups.h"
 
 extern EventGroupHandle_t eg;
-extern uint32_t samp_counter;
 extern float init_output;
 extern float tempnoise;
 

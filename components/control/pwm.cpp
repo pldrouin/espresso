@@ -8,7 +8,6 @@
 #include "pwm.h"
 
 #define PWM_TIMER_DIVIDER         (8000)  //  Hardware timer clock divider
-#define CONFIG_CONTROL_PWM_MAX_FREQUENCY (8) //In Hz
 #define PWM_MIN_TICKS ((int64_t)(TIMER_BASE_CLK / (CONFIG_CONTROL_PWM_MAX_FREQUENCY * PWM_TIMER_DIVIDER)))
 
 uint32_t pwm_output=0; //PWM output level, using __ATOMIC_RELAXED

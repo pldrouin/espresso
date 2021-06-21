@@ -7,8 +7,6 @@
 
 #include "temperature.h"
 
-static int keepgoing=0;
-
 static float radcsamples[CONFIG_TEMP_AVE_N_MEAS]; //Ring buffer for ADC0 values
 static float radcsum;
 Adafruit_ADS1115 ads;
@@ -57,8 +55,6 @@ int TemperatureInit()
 	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
 
 	if(tempstate==kTempOK) {
-		keepgoing=1;
-		xTaskCreate(TempUpdate, "Temperature Update", 2048, NULL, configMAX_PRIORITIES-1, NULL);
 		printf("Temperature initialisation completed\n");
 		return 0;
 
@@ -70,57 +66,36 @@ int TemperatureInit()
 
 void TemperatureDeinit()
 {
-	if(keepgoing==1) {
-		keepgoing=0;
-
-		while(!keepgoing) vTaskDelay(1 / portTICK_PERIOD_MS);
-		keepgoing=0;
-	}
 	tempave=NAN;
 	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
 	printf("Temperature deinitialisation completed\n");
 }
 
-void TempUpdate(void* parameter)
+void TempUpdate(const uint32_t& sample)
 {
 	int i;
-	uint32_t time;
 	uint16_t v1, v0;
 
-	do {
-		//This is a ugly fix for a bug with the firsd read
-		v1=ads.readADC_SingleEnded(1);
+	//if(sample!=prevtime+1 && prevtime>0) printf("%s: Error: previous measurement at %u, current at %u\n",__func__,prevtime,sample);
 
-	} while(v1==INT16_MAX);
+	radcsum-=radcsamples[tidx];
+	v1=ads.readADC_SingleEnded(1);
+	v0=ads.readADC_SingleEnded(0);
+	radcsamples[tidx]=v1/(float)v0;
 
-	while(keepgoing==1) {
-		xEventGroupWaitBits(eg, TEMP_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
-    	__atomic_load(&samp_counter, &time, __ATOMIC_RELAXED);
+	//if(v1==INT16_MAX || v0==INT16_MAX) printf("%s: Error: ADCs are %u/%u\n",__func__,v1,v0);
+	//printf("ADCs are %u/%u\n",v1,v0);
+	//printf("Values are %u and %u\n",ads.readADC_SingleEnded(0),ads.readADC_SingleEnded(1));
+	radcsum+=radcsamples[tidx];
 
-    	//if(time!=prevtime+1 && prevtime>0) printf("%s: Error: previous measurement at %u, current at %u\n",__func__,prevtime,time);
+	radcsum=radcsamples[CONFIG_TEMP_AVE_N_MEAS-1];
 
-		radcsum-=radcsamples[tidx];
-		v1=ads.readADC_SingleEnded(1);
-		v0=ads.readADC_SingleEnded(0);
-		radcsamples[tidx]=v1/(float)v0;
+	for(i=CONFIG_TEMP_AVE_N_MEAS-2; i>=0; --i) radcsum+=radcsamples[i];
+	radcave=radcsum/CONFIG_TEMP_AVE_N_MEAS;
+	tempave=CalcTemp(radcave);
+	//printf("tempave is %7.3f C at %u\n",tempave,sample);
 
-		//if(v1==INT16_MAX || v0==INT16_MAX) printf("%s: Error: ADCs are %u/%u\n",__func__,v1,v0);
-  	    //printf("ADCs are %u/%u\n",v1,v0);
-		//printf("Values are %u and %u\n",ads.readADC_SingleEnded(0),ads.readADC_SingleEnded(1));
-		radcsum+=radcsamples[tidx];
-
-		radcsum=radcsamples[CONFIG_TEMP_AVE_N_MEAS-1];
-
-		for(i=CONFIG_TEMP_AVE_N_MEAS-2; i>=0; --i) radcsum+=radcsamples[i];
-		radcave=radcsum/CONFIG_TEMP_AVE_N_MEAS;
-    	tempave=CalcTemp(radcave);
-       	//printf("tempave is %7.3f C at %u\n",tempave,time);
-
-    	if(tempave < MIN_TEMP || tempave > MAX_TEMP) tempstate=kTempInvalid;
-   	    __atomic_store_n(&temptime, time, __ATOMIC_RELEASE);
-		tidx=(tidx+1)%CONFIG_TEMP_AVE_N_MEAS;
-	}
-	keepgoing=-1;
-	vTaskDelete(NULL);
+	if(tempave < MIN_TEMP || tempave > MAX_TEMP) tempstate=kTempInvalid;
+	__atomic_store_n(&temptime, sample, __ATOMIC_RELEASE);
+	tidx=(tidx+1)%CONFIG_TEMP_AVE_N_MEAS;
 }
-

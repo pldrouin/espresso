@@ -18,21 +18,15 @@ menu "Application Configuration"
 	    help
 		Number of temperature measurements used for averaging.
 
-	config CONTROL_PWM_CLOCK_TICK_N_SAMPLES
-	    int "PWM Clock Tick N Samples"
-	    default 10
+	config CONTROL_PWM_MAX_FREQUENCY
+	    int "PWM maximum number of pulses per second"
+	    default 8
 	    help
-		Number of samples corresponding to one PWM clock tick.
-
-	config CONTROL_PWM_CLOCK_PERIOD_N_TICKS
-	    int "PWM Clock Period N Ticks"
-	    default 128
-	    help
-		Number of PWM clock ticks corresponding to the PWM period.
+		PWM maximum number of pulses per second.
 
 	config CONTROLLER_SAMPLING_PERIOD_N_SAMPLES
 	    int "Controller Sampling Period N Samples"
-	    default 80
+	    default 8
 	    help
 		Number of control samples corresponding to the controller sampling period.
     endmenu

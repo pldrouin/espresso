@@ -46,6 +46,6 @@ inline const float& TempGetTempAve(){return tempave;}
 inline const int& TempState(){return tempstate;}
 inline uint32_t TempTime(){uint32_t ret; __atomic_load(&temptime, &ret, __ATOMIC_ACQUIRE); return ret;}
 
-void TempUpdate(void* parameter);
+void TempUpdate(const uint32_t& sample);
 
 #endif /* COMPONENTS_CONTROL_TEMPERATURE_H_ */

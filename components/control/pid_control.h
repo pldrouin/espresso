@@ -18,17 +18,15 @@
 #include "pwm.h"
 #include "controller.h"
 
-void PIDSetParams(const float& kp, const float& ki, const float& kd);
-void PIDSetLimitParams(const float& maxintegralval=INFINITY, const float& minintegralval=0, const float& maxmidoutputdriftup=INFINITY, const float& maxmidoutputdriftdown=INFINITY);
-void PIDSetNDAve(const int& n);
+void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact=0.5, const float& Tifact=4, const float& Tdfact=0.5);
+void PIDSetLimitParams(const float& maxintegralval=INFINITY, const float& minintegralval=0);
+void PIDSetDFilter(const float& Tdfilterfact=0.05);
+void PIDSetDeadband(const float& dband);
 void PIDSetIntegral(const float& theintegral);
 
 void PIDPrintParams();
 
 void PIDControlInit();
-
-bool PIDOutputHistoryReset(bool force=false);
-void PIDOutputHistoryUpdate(const float& output);
 
 float PIDControl();
 

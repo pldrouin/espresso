@@ -58,17 +58,10 @@ void PIDATuneSetNLookbackSamples(const int& nlookback)
 
 float PIDATune()
 {
-	uint32_t temptime=TempTime(), newtemptime;
-	float tempval;
+	//Same thread as temperature, so we don't need to use non-blocking algorithms
+	uint32_t temptime=TempTime();
+	float tempval=TempGetTempAve();
 	float output;
-
-	for(;;) {
-		tempval=TempGetTempAve();
-		newtemptime=TempTime();
-
-		if(newtemptime==temptime) break;
-		temptime=newtemptime;
-	}
 
 	if(tuning) {
 		byte val = aTune->Runtime(tempval, (unsigned long)(temptime / (float)CONFIG_CONTROL_SAMPLING_FREQ * 1000),GetInitOutput(),&output);
