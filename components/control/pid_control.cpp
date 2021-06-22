@@ -19,10 +19,6 @@ static bool clearednoise;
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0, Tf=0;
 static float maxintegralvalue=1, minintegralvalue=0;
 static float deadband=0;
-static float minerrorlevel=0.05;
-static float curerrorlevel;
-static uint32_t maxintmultiplicator=64;
-static uint32_t curintmultiplicator;
 
 void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact, const float& Tifact, const float& Tdfact)
 {
@@ -66,8 +62,6 @@ void PIDControlInit()
 	outputavestarttime=0;
 	PIDSetIntegral(GetInitOutput());
 	dterm=0;
-	curintmultiplicator=1;
-	curerrorlevel=minerrorlevel;
 	lasttemptime=TempTime();
 	lasttemp=TempGetTempAve();
 }
@@ -108,20 +102,10 @@ float PIDControl()
 
 	//Start by computing the new output using the previous integral value
 	float output = pterm + integral + dterm;
-	const float abserror=fabsf(error);
 
 	//If outside the deadband, the integral value needs to be updated
-	if(abserror > deadband) {
-
-		if(abserror > curerrorlevel && curintmultiplicator < maxintmultiplicator) {
-			curerrorlevel*=2;
-			curintmultiplicator<<=1;
-
-		} else if(abserror < 0.5*curerrorlevel && curintmultiplicator > 1) {
-			curerrorlevel*=0.5;
-			curintmultiplicator>>=1;
-		}
-		float diterm=Igain * -error * curintmultiplicator * dtime; //Default integral increment
+	if(fabsf(error) > deadband) {
+		float diterm=Igain * -error * dtime; //Default integral increment
 
 		//Ensure the integral value remains within the defined limits
 		if(integral+diterm > maxintegralvalue) diterm=maxintegralvalue-integral;
@@ -152,14 +136,14 @@ float PIDControl()
 
 		//Else if output < 0
 		else output=0;
-	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%% (x%2u), D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,curintmultiplicator,100*dterm,100*integral);
+	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
 
 	} else {
 
 		if(output > 1) output=1;
 
 		else if(output < 0) output=0;
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%< (x 0), D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*dterm,100*integral);
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*dterm,100*integral);
 	}
 
 	PWMSetOutput(output);
