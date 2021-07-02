@@ -33,7 +33,7 @@
 extern float radcave;
 extern float tempave;
 extern int tempstate;
-extern uint32_t temptime;
+extern uint32_t temptick;
 
 enum {kTempUninitialized=-1, kTempOK=0, kTempInvalid=1};
 
@@ -44,7 +44,7 @@ void TemperatureDeinit();
 inline const float& TempGetRelativeADCAve(){return radcave;}
 inline const float& TempGetTempAve(){return tempave;}
 inline const int& TempState(){return tempstate;}
-inline uint32_t TempTime(){uint32_t ret; __atomic_load(&temptime, &ret, __ATOMIC_ACQUIRE); return ret;}
+inline uint32_t TempTick(){uint32_t ret; __atomic_load(&temptick, &ret, __ATOMIC_ACQUIRE); return ret;}
 
 void TempUpdate(const uint32_t& sample);
 

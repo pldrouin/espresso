@@ -7,10 +7,8 @@
 
 #include "controller.h"
 
-#define TIMER_DIVIDER         (10000)  //  Hardware timer clock divider
-#define ALARM_N_TICKS		  (TIMER_BASE_CLK / TIMER_DIVIDER / CONFIG_CONTROL_SAMPLING_FREQ)
-
 static uint32_t samp_counter=0;
+static uint64_t timer_tick;
 static int keepgoing=0;
 static float (*ControllerAlgorithm)() = NULL;
 static void (*ControllerAlgorithmInit)() = NULL;
@@ -125,9 +123,10 @@ void ControllerUpdate(void* parameter)
 {
 	while(keepgoing==1) {
 		xEventGroupWaitBits(eg, CONTROLLER_UPDATE_TASK_BIT, pdTRUE, pdTRUE, portMAX_DELAY) ;
+	    timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &timer_tick);
 
 		if(samp_counter%CONFIG_TEMP_N_SAMPLES == 0) {
-			TempUpdate(samp_counter);
+			TempUpdate(timer_tick);
 
 			if(TempState() != kTempOK) {
 				KillSwitchSetNoKill(false);

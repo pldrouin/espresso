@@ -15,7 +15,7 @@ static int tidx; //Ring buffer index
 float radcave;
 float tempave=NAN;
 int tempstate=kTempUninitialized;
-uint32_t temptime=0; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because we want consistent temperature values, but we don't need consistency of independent atomic operations between threads
+uint32_t temptick=0; //Using __ATOMIC_ACQUIRE/__ATOMIC_RELEASE because we want consistent temperature values, but we don't need consistency of independent atomic operations between threads
 
 inline static float CalcTemp(const float& radc)
 {
@@ -52,7 +52,7 @@ int TemperatureInit()
 
 	if(tempave >= MIN_TEMP && tempave <= MAX_TEMP) tempstate=kTempOK;
 	else tempstate=kTempInvalid;
-	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
+	__atomic_store_n(&temptick, 0, __ATOMIC_RELEASE);
 
 	if(tempstate==kTempOK) {
 		printf("Temperature initialisation completed\n");
@@ -67,11 +67,11 @@ int TemperatureInit()
 void TemperatureDeinit()
 {
 	tempave=NAN;
-	__atomic_store_n(&temptime, 0, __ATOMIC_RELEASE);
+	__atomic_store_n(&temptick, 0, __ATOMIC_RELEASE);
 	printf("Temperature deinitialisation completed\n");
 }
 
-void TempUpdate(const uint32_t& sample)
+void TempUpdate(const uint32_t& timer_tick)
 {
 	int i;
 	uint16_t v1, v0;
@@ -96,6 +96,6 @@ void TempUpdate(const uint32_t& sample)
 	//printf("tempave is %7.3f C at %u\n",tempave,sample);
 
 	if(tempave < MIN_TEMP || tempave > MAX_TEMP) tempstate=kTempInvalid;
-	__atomic_store_n(&temptime, sample, __ATOMIC_RELEASE);
+	__atomic_store_n(&temptick, timer_tick, __ATOMIC_RELEASE);
 	tidx=(tidx+1)%CONFIG_TEMP_AVE_N_MEAS;
 }

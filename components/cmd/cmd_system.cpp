@@ -570,13 +570,13 @@ static void register_stop_tuning(void)
 
 static int cmd_status(int argc, char **argv)
 {
-	uint32_t temptime=TempTime(), newtemptime;
+	uint32_t temptime=TempTick(), newtemptime;
 	float radcval, tempval;
 
 	for(;;) {
 		radcval=TempGetRelativeADCAve();
 		tempval=TempGetTempAve();
-		newtemptime=TempTime();
+		newtemptime=TempTick();
 
 		if(newtemptime==temptime) break;
 		temptime=newtemptime;

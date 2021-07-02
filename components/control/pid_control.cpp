@@ -10,9 +10,9 @@
 static float integral;
 static float dterm=0;
 static float lasttemp;
-static uint32_t lasttemptime;
+static uint32_t lasttemptick;
 static float outputsum=0;
-static uint32_t outputavestarttime=0;
+static uint32_t outputavestarttick=0;
 static float avecycletemp;
 static bool clearednoise;
 
@@ -59,21 +59,21 @@ void PIDPrintParams()
 void PIDControlInit()
 {
 	clearednoise=false;
-	outputavestarttime=0;
+	outputavestarttick=0;
 	PIDSetIntegral(GetInitOutput());
 	dterm=0;
-	lasttemptime=TempTime();
+	lasttemptick=TempTick();
 	lasttemp=TempGetTempAve();
 }
 
 float PIDControl()
 {
 	//Same thread as temperature, so we don't need to use non-blocking algorithms
-	uint32_t temptime=TempTime();
+	uint32_t temptick=TempTick();
 	float tempval=TempGetTempAve();
 
-	uint32_t dtick = temptime - lasttemptime;
-	float dtime = dtick / (float)CONFIG_CONTROL_SAMPLING_FREQ;
+	uint32_t dtick = temptick - lasttemptick;
+	float dtime = Tick2Sec(dtick);
 	float error = tempval - GetTargetTemp();
 
 	//If the noise threshold has not been cleared (power off)
@@ -88,13 +88,13 @@ float PIDControl()
 		//Else if the noise threshold has been cleared and the target has just been reached (power on)
 	} else if(error>=0) {
 		clearednoise=false;
-		float newoutputave=outputsum/(temptime-outputavestarttime);
-		avecycletemp/=temptime-outputavestarttime;
-		printf("Computed new average output is %7.3f%%, average temp is %7.3f C, cycle time was %8.3f\n",newoutputave*100,avecycletemp,(temptime-outputavestarttime)/(float)CONFIG_CONTROL_SAMPLING_FREQ);
+		float newoutputave=outputsum/(temptick-outputavestarttick);
+		avecycletemp/=temptick-outputavestarttick;
+		printf("Computed new average output is %7.3f%%, average temp is %7.3f C, cycle time was %8.3f\n",newoutputave*100,avecycletemp,Tick2Sec(temptick-outputavestarttick));
 
 		outputsum=0;
 		avecycletemp=0;
-		outputavestarttime=temptime;
+		outputavestarttick=temptick;
 	}
 
 	float pterm = Pgain * -error;
@@ -132,18 +132,26 @@ float PIDControl()
 				output = 0;
 			}
 
-		} else if(output > 1) output=1;
+		} else if(output > 1) {
+			output=1;
+			integral=maxintegralvalue;
 
 		//Else if output < 0
-		else output=0;
-	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
+		} else {
+			output=0;
+		}
+	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
 
 	} else {
 
-		if(output > 1) output=1;
+		if(output > 1) {
+			output=1;
+			integral=maxintegralvalue;
 
-		else if(output < 0) output=0;
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,100*output,100*pterm,100*dterm,100*integral);
+		} else if(output < 0) {
+			output=0;
+		}
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 	}
 
 	PWMSetOutput(output);
@@ -151,7 +159,7 @@ float PIDControl()
 	avecycletemp+=tempval*dtick;
 
 	lasttemp = tempval;
-	lasttemptime = temptime;
+	lasttemptick = temptick;
 
 	return tempval;
 }

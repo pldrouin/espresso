@@ -10,10 +10,10 @@
 float SimpleControl()
 {
 	//Same thread as temperature, so we don't need to use non-blocking algorithms
-	uint32_t temptime=TempTime();
+	uint32_t temptick=TempTick();
 	float tempval=TempGetTempAve();
 
-	printf("%8.3f: Temp: %6.2f C vs %6.2f C setpoint => ",temptime/(float)CONFIG_CONTROL_SAMPLING_FREQ,tempval,GetTargetTemp());
+	printf("%8.3f: Temp: %6.2f C vs %6.2f C setpoint => ",Tick2Sec(temptick),tempval,GetTargetTemp());
 
 	if(tempval < GetTargetTemp()-GetTempNoise()) {
 		printf("On\n");
