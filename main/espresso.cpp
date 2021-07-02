@@ -19,6 +19,7 @@
 #include "Arduino.h"
 
 #include "controller.h"
+#include "pid_control.h"
 
 #include "sdkconfig.h"
 
@@ -27,6 +28,17 @@
 #endif // CONFIG_ESP_CONSOLE_USB_CDC
 
 #define PROMPT_STR CONFIG_IDF_TARGET
+
+void config_and_start()
+{
+	SetTargetTemp(127.75);
+	ControllerSetAlgorithm(PIDControl, PIDControlInit);
+	PIDSetParams(0.315, 3, 0.5, 5, 0.5);
+	PIDSetDFilter(1);
+	PIDSetDeadband(0.03);
+	PIDSetLimitParams(0.5, 0.05);
+	ControllerInit();
+}
 
 void initialize_console(void)
 {
@@ -102,6 +114,7 @@ extern "C" void app_main()
 
 	eg=xEventGroupCreate();
 	ControllerSetup();
+	config_and_start();
 
 	initialize_console();
 

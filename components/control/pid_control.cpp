@@ -97,56 +97,74 @@ float PIDControl()
 		outputavestarttick=temptick;
 	}
 
-	float pterm = Pgain * -error;
+	float output;
 	dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
-
-	//Start by computing the new output using the previous integral value
-	float output = pterm + integral + dterm;
 
 	//If outside the deadband, the integral value needs to be updated
 	if(fabsf(error) > deadband) {
-		float diterm=Igain * -error * dtime; //Default integral increment
 
-		//Ensure the integral value remains within the defined limits
-		if(integral+diterm > maxintegralvalue) diterm=maxintegralvalue-integral;
-		else if(integral+diterm < minintegralvalue) diterm=minintegralvalue-integral;
-		//Attempt of a new output value using the updated integral value
-		float outputp = output + diterm;
+		//Start by computing the part of the output that does not depend on the current error
+		output = integral + dterm;
 
-		//Dynamic reset limit
-		//If the diterm can be included without saturating, add it to the integral
-		if(outputp <= 1 && outputp >= 0) {
-			integral += diterm;
-			output = outputp;
+		float errorterm = (Pgain + Igain * dtime) * -error;
 
-		//Else if reaching saturation somewhere along the way between the previous integral value and the new integral value,
-		//only go up to saturation and stop the integral there
-		} else if(output < 1 && output > 0) {
+		float pterm, diterm;
+		float errorscale=1;
 
-			if(outputp > 1) {
-				integral += 1-output;
-				output = 1;
+		//If maxing out the output
+		if(output + errorterm > 1) {
 
-			} else { //outputp < 0
-				integral -= output;
-				output = 0;
-			}
-
-		} else if(output > 1) {
+			errorscale = (1 - output) / errorterm;
 			output=1;
-			integral=maxintegralvalue;
+			diterm = errorscale * Igain * dtime * -error;
+			integral += diterm;
 
-		//Else if output < 0
+			//If reaching the integral upper bound
+			if(integral > maxintegralvalue) {
+				diterm = maxintegralvalue - integral;
+				integral = maxintegralvalue;
+			}
+			pterm = 1 - (integral + dterm);
+
+		//If zeroing the output
+		} else if(output + errorterm < 0) {
+
+			errorscale = -output / errorterm;
+			output = 0;
+			diterm = errorscale * Igain * dtime * -error;
+			integral += diterm;
+
+			//If reaching the integral lower bound
+			if(integral < minintegralvalue) {
+				diterm = integral - minintegralvalue;
+				integral = minintegralvalue;
+			}
+			pterm = -(integral + dterm);
+
+		//Else if the errorterm is not saturating the output
 		} else {
-			output=0;
+			diterm = Igain * dtime * -error;
+			integral += diterm;
+
+			if(integral > maxintegralvalue) {
+				diterm = maxintegralvalue - integral;
+				integral = maxintegralvalue;
+
+			} else if(integral < minintegralvalue) {
+				diterm = integral - minintegralvalue;
+				integral = minintegralvalue;
+			}
+			pterm = Pgain * -error;
+			output += pterm + diterm;
 		}
-	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral);
+	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
 
 	} else {
+		float pterm = Pgain * -error;
+		output = pterm + integral + dterm;
 
 		if(output > 1) {
 			output=1;
-			integral=maxintegralvalue;
 
 		} else if(output < 0) {
 			output=0;
