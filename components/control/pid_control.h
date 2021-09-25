@@ -21,12 +21,14 @@
 void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact=0.5, const float& Tifact=4, const float& Tdfact=0.5);
 void PIDSetLimitParams(const float& maxintegralval=INFINITY, const float& minintegralval=0);
 void PIDSetDFilter(const float& Tdfilterfact=0.05);
+void PIDSetRampThreshold(const float& thresh);
 void PIDSetDeadband(const float& dband);
 void PIDSetIntegral(const float& theintegral);
 
 void PIDPrintParams();
 
 void PIDControlInit();
+void PIDControlDeinit();
 
 float PIDControl();
 

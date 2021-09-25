@@ -7,6 +7,8 @@
 
 #include "pid_atune.h"
 
+enum ramp_status_type {kRampDisabled, kRampInitialising, kRampActive, kRampWait};
+
 static float integral;
 static float dterm=0;
 static float lasttemp;
@@ -15,13 +17,21 @@ static float outputsum=0;
 static uint32_t outputavestarttick=0;
 static float avecycletemp;
 static bool clearednoise;
+static uint8_t rampstatus;
+static float* rampvalues;
+static uint32_t ridx;
 
+static float theta0=0;
+static uint32_t theta0ticks;
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0, Tf=0;
 static float maxintegralvalue=1, minintegralvalue=0;
+static float rampthresh=INFINITY;
+static uint32_t rampwaitticks;
 static float deadband=0;
 
 void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact, const float& Tifact, const float& Tdfact)
 {
+	theta0=Theta0;
 	Pgain=Kcfact/(Ki*Theta0);
 	Ti=Tifact*Theta0;
 	Igain=Pgain/Ti;
@@ -39,6 +49,11 @@ void PIDSetLimitParams(const float& maxintegralval, const float& minintegralval)
 void PIDSetDFilter(const float& Tdfilterfact)
 {
 	Tf=Tdfilterfact*Td;
+}
+
+void PIDSetRampThreshold(const float& thresh)
+{
+	rampthresh=thresh;
 }
 
 void PIDSetDeadband(const float& dband)
@@ -64,6 +79,14 @@ void PIDControlInit()
 	dterm=0;
 	lasttemptick=TempTick();
 	lasttemp=TempGetTempAve();
+	rampstatus=kRampDisabled;
+	theta0ticks=ceil(TIMER_N_TICKS_PER_SEC*theta0);
+	rampvalues=(float*)malloc((theta0ticks+1)*sizeof(float));
+}
+
+void PIDControlDeinit()
+{
+	free(rampvalues);
 }
 
 float PIDControl()
@@ -98,78 +121,137 @@ float PIDControl()
 	}
 
 	float output;
-	dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 
-	//If outside the deadband, the integral value needs to be updated
-	if(fabsf(error) > deadband) {
+	if(rampstatus==kRampDisabled && error < -rampthresh) {
+		output=1;
+		rampstatus=kRampInitialising;
+		ridx=0;
+		rampvalues[ridx]=error;
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (initialising ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
-		//Start by computing the part of the output that does not depend on the current error
-		output = integral + dterm;
+	} else if(rampstatus==kRampInitialising) {
+		++ridx;
+		rampvalues[ridx]=error;
 
-		float errorterm = (Pgain + Igain * dtime) * -error;
+		if(error>=0) {
+			output=0;
+			rampstatus=kRampWait;
+			rampwaitticks=theta0ticks;
+		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
 
-		float pterm, diterm;
-		float errorscale=1;
-
-		//If maxing out the output
-		if(output + errorterm > 1) {
-
-			errorscale = (1 - output) / errorterm;
+		} else{
 			output=1;
-			diterm = errorscale * Igain * dtime * -error;
-			integral += diterm;
 
-			//If reaching the integral upper bound
-			if(integral > maxintegralvalue) {
-				diterm = maxintegralvalue - integral;
-				integral = maxintegralvalue;
-			}
-			pterm = 1 - (integral + dterm);
-
-		//If zeroing the output
-		} else if(output + errorterm < 0) {
-
-			errorscale = -output / errorterm;
-			output = 0;
-			diterm = errorscale * Igain * dtime * -error;
-			integral += diterm;
-
-			//If reaching the integral lower bound
-			if(integral < minintegralvalue) {
-				diterm = integral - minintegralvalue;
-				integral = minintegralvalue;
-			}
-			pterm = -(integral + dterm);
-
-		//Else if the errorterm is not saturating the output
-		} else {
-			diterm = Igain * dtime * -error;
-			integral += diterm;
-
-			if(integral > maxintegralvalue) {
-				diterm = maxintegralvalue - integral;
-				integral = maxintegralvalue;
-
-			} else if(integral < minintegralvalue) {
-				diterm = integral - minintegralvalue;
-				integral = minintegralvalue;
-			}
-			pterm = Pgain * -error;
-			output += pterm + diterm;
+			if(ridx==theta0ticks) rampstatus=kRampActive;
+		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (activating ramp)\n",Tick2Sec(temptick),tempval,100*output);
 		}
-	    printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
+
+	} else if(rampstatus==kRampActive) {
+		ridx=(ridx+1)%(theta0ticks+1);
+		rampvalues[ridx]=error;
+
+		//If reach setpoint within the next deadtime
+		if(2*error-rampvalues[(ridx+theta0ticks)%(theta0ticks+1)] >=0) {
+			output=0;
+			rampstatus=kRampWait;
+			rampwaitticks=theta0ticks;
+		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
+
+		} else {
+			output=1;
+		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
+		}
+
+	} else if(rampstatus==kRampWait) {
+		output=0;
+		--rampwaitticks;
+
+		if(rampwaitticks==1) rampstatus=kRampDisabled;
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
 
 	} else {
-		float pterm = Pgain * -error;
-		output = pterm + integral + dterm;
+		dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 
-		if(output > 1) {
-			output=1;
+		//If outside the deadband, the integral value needs to be updated
+		if(fabsf(error) > deadband) {
+			const float defpterm = Pgain * -error;
+			float pterm = defpterm;
+			float diterm = Igain * dtime * -error;
+			float errorterm = defpterm + diterm;
 
-		} else if(output < 0) {
-			output=0;
+			float errorscale=1;
+
+			output = errorterm + integral + dterm;
+
+			//If maxing out the output
+			if(output > 1) {
+				errorscale = (1 - output + errorterm) / errorterm;
+				output=1;
+				diterm *= errorscale;
+				integral += diterm;
+
+				//If reaching the integral upper bound
+				if(integral > maxintegralvalue) {
+					diterm = maxintegralvalue - integral;
+					integral = maxintegralvalue;
+					pterm = 1 - (integral + dterm);
+
+					if(pterm > defpterm) {
+						pterm = defpterm;
+						output = pterm + integral + dterm;
+					}
+
+				} else pterm = 1 - (integral + dterm);
+
+				//If zeroing the output
+			} else if(output < 0) {
+				errorscale = (errorterm - output) / errorterm;
+				output = 0;
+				diterm *= errorscale;
+				integral += diterm;
+
+				//If reaching the integral lower bound
+				if(integral < minintegralvalue) {
+					diterm = integral - minintegralvalue;
+					integral = minintegralvalue;
+					pterm = -(integral + dterm);
+
+					if(pterm < defpterm) {
+						pterm = defpterm;
+						output = pterm + integral + dterm;
+					}
+
+				} else pterm = -(integral + dterm);
+
+				//Else if the errorterm is not saturating the output
+			} else {
+				integral += diterm;
+
+				if(integral > maxintegralvalue) {
+					diterm = maxintegralvalue - integral;
+					integral = maxintegralvalue;
+					output = pterm + integral + dterm;
+
+				} else if(integral < minintegralvalue) {
+					diterm = integral - minintegralvalue;
+					integral = minintegralvalue;
+					output = pterm + integral + dterm;
+				}
+			}
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
+
+		} else {
+			float pterm = Pgain * -error;
+			output = pterm + integral + dterm;
+
+			if(output > 1) {
+				output=1;
+
+			} else if(output < 0) {
+				output=0;
+			}
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 		}
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 	}
 
 	PWMSetOutput(output);

@@ -33,7 +33,7 @@ void config_and_start()
 {
 	SetTargetTemp(127.75);
 	ControllerSetAlgorithm(PIDControl, PIDControlInit);
-	PIDSetParams(0.315, 3, 0.5, 5, 0.5);
+	PIDSetParams(0.315, 3.5, 0.5, 5, 0.5);
 	PIDSetDFilter(1);
 	PIDSetDeadband(0.03);
 	PIDSetLimitParams(0.5, 0.05);

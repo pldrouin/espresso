@@ -142,7 +142,7 @@ static int cmd_set_algo(int argc, char **argv)
 	}
 
 	if(algo_args.simple->count) ControllerSetAlgorithm(SimpleControl, NULL);
-	else if(algo_args.pid->count) ControllerSetAlgorithm(PIDControl, PIDControlInit);
+	else if(algo_args.pid->count) ControllerSetAlgorithm(PIDControl, PIDControlInit, PIDControlDeinit);
 	else if(algo_args.pidatune->count) ControllerSetAlgorithm(PIDATune, PIDATuneInit, PIDATuneDeinit);
 	else ControllerSetAlgorithm();
     return 0;
@@ -352,6 +352,41 @@ static void register_set_pid_d_filter(void)
         .help = "Set PID derivative filtering period relative to Td",
         .hint = NULL,
         .func = &cmd_set_pid_d_filter,
+		.argtable = &output_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_pid_deadband' command */
+static int cmd_set_pid_ramp_threshold(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &output_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, output_args.end, argv[0]);
+		return 1;
+	}
+
+	if(output_args.output->count) {
+
+		if(output_args.output->dval[0]<0) {
+			ESP_LOGE("", "ramp threshold value must be non-negative");
+			return 1;
+		}
+		PIDSetDeadband(output_args.output->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_ramp_threshold(void)
+{
+    output_args.output = arg_dbl1(NULL, NULL, "<threshold>", "Ramp threshold value in C");
+    output_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_ramp_threshold",
+        .help = "Set PID ramp threshold value where the ramp algorithm is used instead of PID",
+        .hint = NULL,
+        .func = &cmd_set_pid_ramp_threshold,
 		.argtable = &output_args
     };
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
@@ -653,6 +688,7 @@ void register_system(void)
 	register_set_pid_params();
 	register_set_pid_limit_params();
 	register_set_pid_d_filter();
+	register_set_pid_ramp_threshold();
 	register_set_pid_deadband();
 	register_set_pid_integral();
 	register_set_temp_noise();
