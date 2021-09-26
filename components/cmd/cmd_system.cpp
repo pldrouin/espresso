@@ -322,41 +322,6 @@ static void register_set_pid_limit_params(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-/* 'set_pid_d_filter' command */
-static int cmd_set_pid_d_filter(int argc, char **argv)
-{
-	int nerrors = arg_parse(argc, argv, (void **) &output_args);
-	if (nerrors != 0) {
-		arg_print_errors(stderr, output_args.end, argv[0]);
-		return 1;
-	}
-
-	if(output_args.output->count) {
-
-		if(output_args.output->dval[0]<0) {
-			ESP_LOGE("", "filter Td factor value must be non-negative");
-			return 1;
-		}
-		PIDSetDFilter(output_args.output->dval[0]);
-	}
-    return 0;
-}
-
-static void register_set_pid_d_filter(void)
-{
-    output_args.output = arg_dbl1(NULL, NULL, "<Td filter factor>", "filter Td factor");
-    output_args.end = arg_end(1);
-
-    const esp_console_cmd_t cmd = {
-        .command = "set_pid_d_filter",
-        .help = "Set PID derivative filtering period relative to Td",
-        .hint = NULL,
-        .func = &cmd_set_pid_d_filter,
-		.argtable = &output_args
-    };
-    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
-}
-
 /* 'set_pid_derive_time' command */
 static int cmd_set_pid_derive_time(int argc, char **argv)
 {
@@ -427,7 +392,7 @@ static void register_set_pid_ramp_threshold(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-/* 'set_pid_d_filter' command */
+/* 'set_pid_deadband' command */
 static int cmd_set_pid_deadband(int argc, char **argv)
 {
 	int nerrors = arg_parse(argc, argv, (void **) &output_args);
@@ -722,7 +687,6 @@ void register_system(void)
 	register_set_init_output();
 	register_set_pid_params();
 	register_set_pid_limit_params();
-	register_set_pid_d_filter();
 	register_set_pid_derive_time();
 	register_set_pid_ramp_threshold();
 	register_set_pid_deadband();
