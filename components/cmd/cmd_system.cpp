@@ -357,6 +357,41 @@ static void register_set_pid_d_filter(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
+/* 'set_pid_derive_time' command */
+static int cmd_set_pid_derive_time(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &output_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, output_args.end, argv[0]);
+		return 1;
+	}
+
+	if(output_args.output->count) {
+
+		if(output_args.output->dval[0]<0) {
+			ESP_LOGE("", "PID derivative time value must be non-negative");
+			return 1;
+		}
+		PIDSetDeriveTime(output_args.output->dval[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_derive_time(void)
+{
+    output_args.output = arg_dbl1(NULL, NULL, "<PID derivative time>", "PID derivative time");
+    output_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_derive_time",
+        .help = "Set PID derivative time",
+        .hint = NULL,
+        .func = &cmd_set_pid_derive_time,
+		.argtable = &output_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
 /* 'set_pid_deadband' command */
 static int cmd_set_pid_ramp_threshold(int argc, char **argv)
 {
@@ -372,7 +407,7 @@ static int cmd_set_pid_ramp_threshold(int argc, char **argv)
 			ESP_LOGE("", "ramp threshold value must be non-negative");
 			return 1;
 		}
-		PIDSetDeadband(output_args.output->dval[0]);
+		PIDSetRampThreshold(output_args.output->dval[0]);
 	}
     return 0;
 }
@@ -688,6 +723,7 @@ void register_system(void)
 	register_set_pid_params();
 	register_set_pid_limit_params();
 	register_set_pid_d_filter();
+	register_set_pid_derive_time();
 	register_set_pid_ramp_threshold();
 	register_set_pid_deadband();
 	register_set_pid_integral();

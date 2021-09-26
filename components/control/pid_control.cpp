@@ -7,7 +7,7 @@
 
 #include "pid_atune.h"
 
-enum ramp_status_type {kRampDisabled, kRampInitialising, kRampActive, kRampWait};
+enum ramp_status_type {kRampDisabled, kRampActive, kRampWait};
 
 static float integral;
 static float dterm=0;
@@ -18,15 +18,16 @@ static uint32_t outputavestarttick=0;
 static float avecycletemp;
 static bool clearednoise;
 static uint8_t rampstatus;
-static float* rampvalues;
 static uint32_t ridx;
+static float* errorvalues;
 
 static float theta0=0;
-static uint32_t theta0ticks;
+static uint32_t derivencalls;
+static uint32_t theta0ncalls;
+static float derivetime=1;
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0, Tf=0;
 static float maxintegralvalue=1, minintegralvalue=0;
 static float rampthresh=INFINITY;
-static uint32_t rampwaitticks;
 static float deadband=0;
 
 void PIDSetParams(const float& Ki, const float& Theta0, const float& Kcfact, const float& Tifact, const float& Tdfact)
@@ -49,6 +50,11 @@ void PIDSetLimitParams(const float& maxintegralval, const float& minintegralval)
 void PIDSetDFilter(const float& Tdfilterfact)
 {
 	Tf=Tdfilterfact*Td;
+}
+
+void PIDSetDeriveTime(const float& time)
+{
+	derivetime=time;
 }
 
 void PIDSetRampThreshold(const float& thresh)
@@ -80,13 +86,16 @@ void PIDControlInit()
 	lasttemptick=TempTick();
 	lasttemp=TempGetTempAve();
 	rampstatus=kRampDisabled;
-	theta0ticks=ceil(TIMER_N_TICKS_PER_SEC*theta0);
-	rampvalues=(float*)malloc((theta0ticks+1)*sizeof(float));
+	derivencalls=ceil(TIMER_N_TICKS_PER_SEC*derivetime/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
+	theta0ncalls=ceil(TIMER_N_TICKS_PER_SEC*theta0/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
+	errorvalues=(float*)malloc((derivencalls+1)*sizeof(float));
+	memset(errorvalues,0,(derivencalls+1)*sizeof(float));
+	ridx=0;
 }
 
 void PIDControlDeinit()
 {
-	free(rampvalues);
+	free(errorvalues);
 }
 
 float PIDControl()
@@ -120,57 +129,48 @@ float PIDControl()
 		outputavestarttick=temptick;
 	}
 
-	float output;
+	float output=0;
 
+	//dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
+	dterm = (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)])/derivetime * -Dgain;
+	ridx = (ridx+1)%(derivencalls+1);
+	errorvalues[ridx]=error;
+	//printf("Derivative: %f vs %f\n",(errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)])/derivetime,-dterm/Dgain);
+	printf("Derivative: %f\n",dterm / -Dgain);
+
+	/*
 	if(rampstatus==kRampDisabled && error < -rampthresh) {
 		output=1;
-		rampstatus=kRampInitialising;
-		ridx=0;
-		rampvalues[ridx]=error;
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (initialising ramp)\n",Tick2Sec(temptick),tempval,100*output);
-
-	} else if(rampstatus==kRampInitialising) {
-		++ridx;
-		rampvalues[ridx]=error;
-
-		if(error>=0) {
-			output=0;
-			rampstatus=kRampWait;
-			rampwaitticks=theta0ticks;
-		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
-
-		} else{
-			output=1;
-
-			if(ridx==theta0ticks) rampstatus=kRampActive;
-		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (activating ramp)\n",Tick2Sec(temptick),tempval,100*output);
-		}
+		rampstatus=kRampActive;
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
 	} else if(rampstatus==kRampActive) {
-		ridx=(ridx+1)%(theta0ticks+1);
-		rampvalues[ridx]=error;
 
-		//If reach setpoint within the next deadtime
-		if(2*error-rampvalues[(ridx+theta0ticks)%(theta0ticks+1)] >=0) {
+		if(error >=0 || error + (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)]) * theta0ncalls / derivencalls >= 0) {
 			output=0;
 			rampstatus=kRampWait;
-			rampwaitticks=theta0ticks;
-		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 
 		} else {
 			output=1;
-		    printf("%8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
 		}
 
 	} else if(rampstatus==kRampWait) {
 		output=0;
-		--rampwaitticks;
 
-		if(rampwaitticks==1) rampstatus=kRampDisabled;
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect: %u)\n",Tick2Sec(temptick),tempval,100*output,rampwaitticks);
+		if(dterm >=0) {
+			rampstatus=kRampDisabled;
+			integral=maxintegralvalue;
+		}
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 
-	} else {
-		dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
+	}
+	*/
+
+	if(error < -rampthresh) integral=maxintegralvalue;
+
+	if(rampstatus==kRampDisabled) {
 
 		//If outside the deadband, the integral value needs to be updated
 		if(fabsf(error) > deadband) {

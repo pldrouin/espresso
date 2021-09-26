@@ -35,8 +35,10 @@ void config_and_start()
 	ControllerSetAlgorithm(PIDControl, PIDControlInit);
 	PIDSetParams(0.315, 3.5, 0.5, 5, 0.5);
 	PIDSetDFilter(1);
+	PIDSetDeriveTime(1);
+	PIDSetRampThreshold(0.25);
 	PIDSetDeadband(0.03);
-	PIDSetLimitParams(0.5, 0.05);
+	PIDSetLimitParams(0.20, 0.05);
 	ControllerInit();
 }
 
