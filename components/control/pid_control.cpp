@@ -17,11 +17,13 @@ static float outputsum=0; //Used to compute average output for reporting purpose
 static uint32_t outputavestarttick=0; //Used to keep track of time when computing average output for reporting purpose
 static float avecycletemp; //Used to compute average temperature for reporting purpose
 static bool clearednoise; //Used to prevent triggering on noise when computing statistics for reporting purpose
+static uint8_t rampstatus; //State machine status for ramp mode
 static uint32_t ridx; //Index used to compute the temperature derivative using a rolling time window
 static float* errorvalues; //Array used to compute the temperature derivative using a rolling time window
 
 static float theta0=0; //Total deadtime (in seconds)
 static uint32_t derivencalls; //Number of PID cycles for the temperature derivative using a rolling time window
+static uint32_t theta0ncalls;
 static float derivetime=1; //Time interval used to compute the temperature derivative
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0; //PID parameters
 static float maxintegralvalue=1, minintegralvalue=0; //PID integral term limits
@@ -78,7 +80,9 @@ void PIDControlInit()
 	dterm=0;
 	lasttemptick=TempTick();
 	lasttemp=TempGetTempAve();
+	rampstatus=kRampDisabled;
 	derivencalls=ceil(TIMER_N_TICKS_PER_SEC*derivetime/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
+	theta0ncalls=ceil(TIMER_N_TICKS_PER_SEC*theta0/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
 	errorvalues=(float*)malloc((derivencalls+1)*sizeof(float));
 	memset(errorvalues,0,(derivencalls+1)*sizeof(float));
 	ridx=0;
@@ -121,7 +125,7 @@ float PIDControl()
 		outputavestarttick=temptick;
 	}
 
-	float output;
+	float output=0;
 
 	//dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 	//Compute PID derivative term
@@ -131,95 +135,129 @@ float PIDControl()
 	errorvalues[ridx]=error;
 	printf("Derivative: %f\n",dterm / -Dgain);
 
-	//If outside the deadband, the integral value needs to be updated
-	if(fabsf(error) > deadband) {
+	//If the temperature drifted down below the ramp threshold
+	if(rampstatus==kRampDisabled && error < -rampthresh) {
+		output=1;
+		rampstatus=kRampActive;
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
-		//Set the integral to its maximum value if exceeding the threshold to ramp up the temperature
-		if(error < -rampthresh) integral=maxintegralvalue;
+    //If the ramp mode is already active
+	} else if(rampstatus==kRampActive) {
 
-		const float defpterm = Pgain * -error;
-		//Default PID P term value
-		float pterm = defpterm;
-		//Initial PID I term increment
-		float diterm = Igain * dtime * -error;
-		//Initial PID P+I terms
-		float errorterm = defpterm + diterm;
 
-		//Initial scaling factor value
-		float errorscale=1;
-
-		//Initial PID output value
-		output = errorterm + integral + dterm;
-
-		//If maxing out the output
-		if(output > 1) {
-			errorscale = (1 - output + errorterm) / errorterm;
-			output=1;
-			diterm *= errorscale;
-			integral += diterm;
-
-			//If reaching the integral upper bound
-			if(integral > maxintegralvalue) {
-				diterm = maxintegralvalue - integral;
-				integral = maxintegralvalue;
-				pterm = 1 - (integral + dterm);
-
-				if(pterm > defpterm) {
-					pterm = defpterm;
-					output = pterm + integral + dterm;
-				}
-
-			} else pterm = 1 - (integral + dterm);
-
-		//If zeroing the output
-		} else if(output < 0) {
-			errorscale = (errorterm - output) / errorterm;
-			output = 0;
-			diterm *= errorscale;
-			integral += diterm;
-
-			//If reaching the integral lower bound
-			if(integral < minintegralvalue) {
-				diterm = integral - minintegralvalue;
-				integral = minintegralvalue;
-				pterm = -(integral + dterm);
-
-				if(pterm < defpterm) {
-					pterm = defpterm;
-					output = pterm + integral + dterm;
-				}
-
-			} else pterm = -(integral + dterm);
-
-			//Else if the errorterm is not saturating the output
-		} else {
-			integral += diterm;
-
-			if(integral > maxintegralvalue) {
-				diterm = maxintegralvalue - integral;
-				integral = maxintegralvalue;
-				output = pterm + integral + dterm;
-
-			} else if(integral < minintegralvalue) {
-				diterm = integral - minintegralvalue;
-				integral = minintegralvalue;
-				output = pterm + integral + dterm;
-			}
-		}
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
-
-    //Else if within the PID deadband
-	} else {
-		float pterm = Pgain * -error;
-		output = pterm + integral + dterm;
-
-		if(output > 1) {
-			output=1;
-
-		} else if(output < 0) {
+		if(error >=0 || error + (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)]) * theta0ncalls / derivencalls >= 0) {
 			output=0;
+			rampstatus=kRampWait;
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
+
+		} else {
+			output=1;
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
 		}
-		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
+
+	//If waiting for the temperature to stop increasing at the end of the ramp mode
+	} else if(rampstatus==kRampWait) {
+		output=0;
+
+		if(dterm >=0) {
+			rampstatus=kRampDisabled;
+			integral=maxintegralvalue;
+		}
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
+	}
+
+	if(rampstatus==kRampDisabled) {
+
+		//If outside the deadband, the integral value needs to be updated
+		if(fabsf(error) > deadband) {
+
+			//Set the integral to its maximum value if exceeding the threshold to ramp up the temperature
+			if(error < -rampthresh) integral=maxintegralvalue;
+
+			const float defpterm = Pgain * -error;
+			//Default PID P term value
+			float pterm = defpterm;
+			//Initial PID I term increment
+			float diterm = Igain * dtime * -error;
+			//Initial PID P+I terms
+			float errorterm = defpterm + diterm;
+
+			//Initial scaling factor value
+			float errorscale=1;
+
+			//Initial PID output value
+			output = errorterm + integral + dterm;
+
+			//If maxing out the output
+			if(output > 1) {
+				errorscale = (1 - output + errorterm) / errorterm;
+				output=1;
+				diterm *= errorscale;
+				integral += diterm;
+
+				//If reaching the integral upper bound
+				if(integral > maxintegralvalue) {
+					diterm = maxintegralvalue - integral;
+					integral = maxintegralvalue;
+					pterm = 1 - (integral + dterm);
+
+					if(pterm > defpterm) {
+						pterm = defpterm;
+						output = pterm + integral + dterm;
+					}
+
+				} else pterm = 1 - (integral + dterm);
+
+				//If zeroing the output
+			} else if(output < 0) {
+				errorscale = (errorterm - output) / errorterm;
+				output = 0;
+				diterm *= errorscale;
+				integral += diterm;
+
+				//If reaching the integral lower bound
+				if(integral < minintegralvalue) {
+					diterm = integral - minintegralvalue;
+					integral = minintegralvalue;
+					pterm = -(integral + dterm);
+
+					if(pterm < defpterm) {
+						pterm = defpterm;
+						output = pterm + integral + dterm;
+					}
+
+				} else pterm = -(integral + dterm);
+
+				//Else if the errorterm is not saturating the output
+			} else {
+				integral += diterm;
+
+				if(integral > maxintegralvalue) {
+					diterm = maxintegralvalue - integral;
+					integral = maxintegralvalue;
+					output = pterm + integral + dterm;
+
+				} else if(integral < minintegralvalue) {
+					diterm = integral - minintegralvalue;
+					integral = minintegralvalue;
+					output = pterm + integral + dterm;
+				}
+			}
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
+
+			//Else if within the PID deadband
+		} else {
+			float pterm = Pgain * -error;
+			output = pterm + integral + dterm;
+
+			if(output > 1) {
+				output=1;
+
+			} else if(output < 0) {
+				output=0;
+			}
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
+		}
 	}
 
 	PWMSetOutput(output);
