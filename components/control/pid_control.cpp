@@ -22,7 +22,7 @@ static bool clearednoise; //Used to prevent triggering on noise when computing s
 static uint8_t rampstatus; //State machine status for ramp mode
 static uint32_t ridx; //Index used to compute the temperature derivative using a rolling time window
 static float* errorvalues; //Array used to compute the temperature derivative using a rolling time window
-static float* derivvalues; //Array used to compute the temperature derivative using a rolling time window
+static float* derivvalues; //Array used to compute the second order temperature derivative using a rolling time window
 
 static float theta0=0; //Total deadtime (in seconds)
 static float roundedtheta0; //Total deadtime rounded up to the next multiple of PID cycle time
@@ -135,13 +135,15 @@ float PIDControl()
 
 	//dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 	//Compute PID derivative term
+	errorvalues[ridx]=error;
 	const float tderiv = (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)])/derivetime;
+	derivvalues[ridx]=tderiv;
 	const float sectderiv = (derivvalues[ridx]-derivvalues[(ridx+1)%(derivencalls+1)])/derivetime;
+	const float terrorforecast = error + roundedtheta0 * (tderiv + roundedtheta0 * 0.5 * sectderiv);
+	const float tderivforecast = tderiv + sectderiv * roundedtheta0;
 	dterm = tderiv * -Dgain;
 	//Increment temperature derivative rolling time window index and update the temperature in the array
 	ridx = (ridx+1)%(derivencalls+1);
-	errorvalues[ridx]=error;
-	derivvalues[ridx]=tderiv;
 	printf("Derivative: %f C/s\tSecond Derivative: %f C/s^2\n",tderiv,sectderiv);
 
 	//If the temperature drifted down below the ramp threshold
@@ -153,7 +155,7 @@ float PIDControl()
     //If the ramp mode is already active
 	} else if(rampstatus==kRampActive) {
 
-		if(error >=0 || error + roundedtheta0 * (tderiv + roundedtheta0 * 0.5 * sectderiv) >= 0) {
+		if(terrorforecast >= 0) {
 			output=0;
 			rampstatus=kRampWait;
 			printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
@@ -167,7 +169,7 @@ float PIDControl()
 	} else if(rampstatus==kRampWait) {
 		output=0;
 
-		if(tderiv + sectderiv * roundedtheta0 <= 0) {
+		if(tderivforecast <= 0) {
 			rampstatus=kRampDisabled;
 			integral=maxintegralvalue;
 		}
