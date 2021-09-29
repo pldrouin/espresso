@@ -9,6 +9,8 @@
 
 enum ramp_status_type {kRampDisabled, kRampActive, kRampWait};
 
+static const float callspersec=(float)TIMER_N_TICKS_PER_SEC/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES);
+
 static float integral; //PID integral term
 static float dterm=0;  //PID derivative term
 static float lasttemp; //Temperature read in the previous PID cycle
@@ -20,10 +22,11 @@ static bool clearednoise; //Used to prevent triggering on noise when computing s
 static uint8_t rampstatus; //State machine status for ramp mode
 static uint32_t ridx; //Index used to compute the temperature derivative using a rolling time window
 static float* errorvalues; //Array used to compute the temperature derivative using a rolling time window
+static float* derivvalues; //Array used to compute the temperature derivative using a rolling time window
 
 static float theta0=0; //Total deadtime (in seconds)
+static float roundedtheta0; //Total deadtime rounded up to the next multiple of PID cycle time
 static uint32_t derivencalls; //Number of PID cycles for the temperature derivative using a rolling time window
-static uint32_t theta0ncalls;
 static float derivetime=1; //Time interval used to compute the temperature derivative
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0; //PID parameters
 static float maxintegralvalue=1, minintegralvalue=0; //PID integral term limits
@@ -81,16 +84,19 @@ void PIDControlInit()
 	lasttemptick=TempTick();
 	lasttemp=TempGetTempAve();
 	rampstatus=kRampDisabled;
-	derivencalls=ceil(TIMER_N_TICKS_PER_SEC*derivetime/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
-	theta0ncalls=ceil(TIMER_N_TICKS_PER_SEC*theta0/(ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES));
+	derivencalls=ceil(derivetime*callspersec);
+	roundedtheta0=ceil(theta0*callspersec)/callspersec;
 	errorvalues=(float*)malloc((derivencalls+1)*sizeof(float));
+	derivvalues=(float*)malloc((derivencalls+1)*sizeof(float));
 	memset(errorvalues,0,(derivencalls+1)*sizeof(float));
+	memset(derivvalues,0,(derivencalls+1)*sizeof(float));
 	ridx=0;
 }
 
 void PIDControlDeinit()
 {
 	free(errorvalues);
+	free(derivvalues);
 }
 
 float PIDControl()
@@ -129,11 +135,14 @@ float PIDControl()
 
 	//dterm = (Tf * dterm - Dgain * (tempval - lasttemp)) / (Tf + dtime);
 	//Compute PID derivative term
-	dterm = (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)])/derivetime * -Dgain;
+	const float tderiv = (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)])/derivetime;
+	const float sectderiv = (derivvalues[ridx]-derivvalues[(ridx+1)%(derivencalls+1)])/derivetime;
+	dterm = tderiv * -Dgain;
 	//Increment temperature derivative rolling time window index and update the temperature in the array
 	ridx = (ridx+1)%(derivencalls+1);
 	errorvalues[ridx]=error;
-	printf("Derivative: %f\n",dterm / -Dgain);
+	derivvalues[ridx]=tderiv;
+	printf("Derivative: %f C/s\tSecond Derivative: %f C/s^2\n",tderiv,sectderiv);
 
 	//If the temperature drifted down below the ramp threshold
 	if(rampstatus==kRampDisabled && error < -rampthresh) {
@@ -144,8 +153,7 @@ float PIDControl()
     //If the ramp mode is already active
 	} else if(rampstatus==kRampActive) {
 
-
-		if(error >=0 || error + (errorvalues[ridx]-errorvalues[(ridx+1)%(derivencalls+1)]) * theta0ncalls / derivencalls >= 0) {
+		if(error >=0 || error + roundedtheta0 * (tderiv + roundedtheta0 * 0.5 * sectderiv) >= 0) {
 			output=0;
 			rampstatus=kRampWait;
 			printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
@@ -159,7 +167,7 @@ float PIDControl()
 	} else if(rampstatus==kRampWait) {
 		output=0;
 
-		if(dterm >=0) {
+		if(tderiv + sectderiv * roundedtheta0 <= 0) {
 			rampstatus=kRampDisabled;
 			integral=maxintegralvalue;
 		}
