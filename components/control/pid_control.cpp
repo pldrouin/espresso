@@ -399,6 +399,8 @@ float PIDControl()
 				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
+				//It is possible to greatly simplify the code below if ramp post states are no longer needed and the current
+				//integral updating algorithm turn out to be optimal.
 
 				if(tderiv >= 0) {
 
@@ -408,8 +410,8 @@ float PIDControl()
 						float newintegral=PIDControlGetNextAxeMaxOutput(temptick, tderiv / -sectderiv);
 
 						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
-						//between the projected estimate and the current value is used.
-						if(integral>newintegral) integral=newintegral;
+						//between the projected estimate and the current value is used, but only if we are still expecting to overshoot.
+						if(error > (tderiv*tderiv)/(2*sectderiv) && integral>newintegral) integral=newintegral;
 						integralforcedupdate=true;
 
 						if(error<0) rampstate=kRampPostMax;
@@ -417,7 +419,11 @@ float PIDControl()
 
 					} else {
 						//Temperature is rising and accelerating, so an estimate for the next maximum cannot be computed.
-						//We keep the existing integral and go back to the PID algorithm
+						newintegral=PIDControlGetPreviousAxeMaxOutput();
+
+						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
+						//between the last value and the current value is used.
+						if(integral>newintegral) integral=newintegral;
 						integralforcedupdate=true;
 						rampstate=kRampDisabled;
 					}
