@@ -34,6 +34,7 @@ static float* errorvalues; //Array used to compute the temperature derivative us
 static float* derivvalues; //Array used to compute the second order temperature derivative using a rolling time window
 static float* maxoutputsums; //Used to store the sums of output*dtick for all the maxima, with enough cells for a whole deadtime
 static uint32_t* maxoutputdticks; //Used to store the dticks for all the maxima, with enough cells for a while deadtime
+static bool integralforcedupdate;
 
 static float theta0=0; //Total deadtime (in seconds)
 static uint32_t theta0nticks; //Total deadtime (in ticks);
@@ -117,6 +118,7 @@ void PIDControlInit()
 	maxoutputdticks[0]=lasttemptick;
 	ridx=0;
 	maxidx=0;
+	integralforcedupdate=true;
 }
 
 void PIDControlDeinit()
@@ -140,32 +142,57 @@ float PIDControlGetPreviousAxeMaxOutput()
 		if(idx<maxidx) {
 
 			for(i=idx; i>=0; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_prev_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_prev_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 
 			for(i=moalength-1; i>maxidx; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_prev_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_prev_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 
 		} else {
 
 			for(i=idx; i>maxidx; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_prev_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_prev_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 		}
 	}
 	found_prev_amo:
 	sum/=nticks;
+
 	printf("Previous max-based average output is %7.3f%%, cycle time was %8.3f\n",sum*100,Tick2Sec(nticks));
+
+	if(sum < minintegralvalue) sum=minintegralvalue;
+	else if(sum > maxintegralvalue) sum=maxintegralvalue;
 	return sum;
 }
 
@@ -182,32 +209,56 @@ float PIDControlGetNextAxeMaxOutput(const uint32_t& nowticks, const float& dtime
 		if(idx<maxidx) {
 
 			for(i=idx; i>=0; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_next_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_next_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 
 			for(i=moalength-1; i>maxidx; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_next_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_next_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 
 		} else {
 
 			for(i=idx; i>maxidx; --i) {
-				nticks+=maxoutputdticks[i];
-				sum+=maxoutputsums[i];
 
-				if(nticks>=theta0nticks) goto found_next_amo;
+				if(nticks+maxoutputdticks[i] >= theta0nticks) {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+
+					goto found_next_amo;
+
+				} else {
+					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
+					nticks=theta0nticks;
+				}
 			}
 		}
 	}
 	found_next_amo:
 	sum/=nticks+dtime*TIMER_N_TICKS_PER_SEC;
 	printf("Next max-based average output is %7.3f%%, cycle time was %8.3f\n",sum*100,Tick2Sec(nticks));
+
+	if(sum < minintegralvalue) sum=minintegralvalue;
+	else if(sum > maxintegralvalue) sum=maxintegralvalue;
 	return sum;
 }
 
@@ -220,6 +271,7 @@ float PIDControl()
 	uint32_t dtick = temptick - lasttemptick; //Time increment in ticks since last cycle
 	float dtime = Tick2Sec(dtick); //Time increment in seconds since last cycle
 	float error = tempval - GetTargetTemp(); //Temperature error
+	float newintegral;
 
 #ifdef PID_ALGO_STATS
 	outputsum+=output*dtick;
@@ -272,6 +324,12 @@ float PIDControl()
 		maxidx=(maxidx+1)%moalength;
 		maxoutputsums[maxidx]=0;
 		maxoutputdticks[maxidx]=temptick;
+
+		if(integralforcedupdate && terrorforecast < -rampthresh) {
+
+			if(terrorforecast < -rampthresh || terrorforecast > rampthresh) integral=PIDControlGetPreviousAxeMaxOutput();
+			integralforcedupdate=false;
+		}
 	}
 
 	//Note: A full rampthreshold discrepancy is required to exit PID or to reactivate the ramp, but 1/2 discrepancy is required to reenter.
@@ -283,7 +341,7 @@ float PIDControl()
 		if(terrorforecast < -rampthresh) {
 			output=1;
 			rampstate=kRampActive;
-			printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
+			printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
 		//Else if the temperature is above the ramp threshold
 		} else {
@@ -297,7 +355,7 @@ float PIDControl()
 			if(terrorforecast>rampthresh) {
 				output=0;
 				rampstate=kRampWait;
-				printf("%8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
+				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
 			}
 		}
 
@@ -309,23 +367,21 @@ float PIDControl()
 
 			if(terrorforecast < -0.5*rampthresh) {
 				output=1;
-				printf("%8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
+				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (ramp active)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
 
 				if(terrorforecast <= 0.5*rampthresh) {
-					//The temperature has not peaked yet in this cycle, so the data from the last cycle has to be used instead,
-					//unless an estimate from the current cycle turns out to be lower.
-					integral=PIDControlGetPreviousAxeMaxOutput();
+					integralforcedupdate=true;
 
 					if(error<0 && tderiv>0) rampstate=kRampPostMax;
 					else rampstate=kRampDisabled;
-				    printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
+				    printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
 
 				} else {
 					output=0;
 					rampstate=kRampWait;
-					printf("%8.3f: Temp: %6.2f C => %6.2f%% (now waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
+					printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 				}
 			}
 
@@ -335,12 +391,12 @@ float PIDControl()
 			if(terrorforecast < -rampthresh) {
 				output=1;
 				rampstate=kRampActive;
-				printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
+				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
 				//We want to wait if the temperature forecast is too high or if it is accelerating
 			} else if(terrorforecast > 0.5*rampthresh) {
 				output=0;
-				printf("%8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
+				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
 
@@ -349,7 +405,12 @@ float PIDControl()
 					if(sectderiv < 0) {
 						//Use an estimate of the average power since the last temperature maximum to the forecasted time of
 						//the next temperature maximum as an estimate for the integral term
-						integral=PIDControlGetNextAxeMaxOutput(temptick, tderiv / -sectderiv);
+						float newintegral=PIDControlGetNextAxeMaxOutput(temptick, tderiv / -sectderiv);
+
+						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
+						//between the projected estimate and the current value is used.
+						if(integral>newintegral) integral=newintegral;
+						integralforcedupdate=true;
 
 						if(error<0) rampstate=kRampPostMax;
 						else rampstate=kRampDisabled;
@@ -357,26 +418,37 @@ float PIDControl()
 					} else {
 						//Temperature is rising and accelerating, so an estimate for the next maximum cannot be computed.
 						//We keep the existing integral and go back to the PID algorithm
+						integralforcedupdate=true;
 						rampstate=kRampDisabled;
 					}
 
 				} else { //tderiv < 0
+					//Not sure this algorithm here is the best
 
 					if(sectderiv < 0) {
-						//Assertion: The temperature peaked very recently and lastavemaxoutput contains the best integral estimate
-						integral=PIDControlGetPreviousAxeMaxOutput();
+						//Assertion: The temperature peaked very recently so we should know the best integral estimate
+						newintegral=PIDControlGetPreviousAxeMaxOutput();
+
+						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
+						//between the last value and the current value is used.
+						if(integral>newintegral) integral=newintegral;
+						integralforcedupdate=false;
 						rampstate=kRampDisabled;
 
 					} else {
-						//Temperature is droping but might reach a minimum soon
+						//Temperature is dropping but might reach a minimum soon
+						newintegral=PIDControlGetPreviousAxeMaxOutput();
+
+						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
+						//between the last value and the current value is used.
+						if(integral>newintegral) integral=newintegral;
+						integralforcedupdate=true;
+
 						if(error>0 && sectderiv>0) rampstate=kRampPostMin;
 						else rampstate=kRampDisabled;
 					}
 				}
-
-				if(integral < minintegralvalue) integral=minintegralvalue;
-				else if(integral > maxintegralvalue) integral=maxintegralvalue;
-				printf("%8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
+				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
 			}
 		}
 	}
@@ -385,9 +457,20 @@ float PIDControl()
 
 		//No D term in ramp post mode because the derivative forecast is actually <= 0, while the current derivative is greater than 0.
 		//The forecasted value can be quite noisy though.
+		/*
 	    if(rampstate>kRampDisabled) dterm = 0;
 
 	    else dterm = tderiv * -Dgain;
+	    */
+		if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
+		(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
+			dterm=0;
+			printf("PI  ");
+
+		} else {
+			dterm = tderiv * -Dgain;
+			printf("PID ");
+		}
 
 		//If outside the deadband, the integral value needs to be updated
 		if(fabsf(error) > deadband) {
