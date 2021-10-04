@@ -3,6 +3,9 @@
  *
  *  Created on: Jun 4, 2021
  *      Author: pldrouin
+ *      Description: Optimised PID algorithm with integral windup prevention, integral deadband, automatic derivative disabling
+ *                   and switching to a Taylor series based control algorithm when a large regime change is detected. This allows
+ *                   to greatly improve response and minimise overshooting and undershooting compared to a PID-based only algorithm.
  */
 
 #include "pid_atune.h"
@@ -116,6 +119,7 @@ void PIDControlInit()
 	memset(maxoutputsums,0,moalength*sizeof(float));
 	memset(maxoutputdticks,0,moalength*sizeof(uint32_t));
 	maxoutputdticks[0]=lasttemptick;
+	maxoutputdticks[moalength-1]=1;
 	ridx=0;
 	maxidx=0;
 	integralforcedupdate=true;
