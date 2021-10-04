@@ -38,7 +38,7 @@ void config_and_start()
 	PIDSetDeriveTime(1);
 	PIDSetRampThreshold(0.5);
 	PIDSetDeadband(0.03);
-	PIDSetLimitParams(1.00, 0.05);
+	PIDSetLimitParams(0.50, 0);
 	ControllerInit();
 }
 

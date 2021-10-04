@@ -123,6 +123,7 @@ void PIDControlInit()
 	ridx=0;
 	maxidx=0;
 	integralforcedupdate=true;
+	integral=0;
 }
 
 void PIDControlDeinit()
@@ -133,7 +134,7 @@ void PIDControlDeinit()
 	free(maxoutputdticks);
 }
 
-float PIDControlGetPreviousAxeMaxOutput()
+float PIDControlGetPreviousAveMaxOutput()
 {
 	int16_t idx=(maxidx-1)%moalength;
 	uint32_t nticks=maxoutputdticks[idx];
@@ -200,7 +201,7 @@ float PIDControlGetPreviousAxeMaxOutput()
 	return sum;
 }
 
-float PIDControlGetNextAxeMaxOutput(const uint32_t& nowticks, const float& dtime)
+float PIDControlGetNextAveMaxOutput(const uint32_t& nowticks, const float& dtime)
 {
 	int16_t idx;
 	uint32_t nticks=nowticks-maxoutputdticks[maxidx];
@@ -275,7 +276,6 @@ float PIDControl()
 	uint32_t dtick = temptick - lasttemptick; //Time increment in ticks since last cycle
 	float dtime = Tick2Sec(dtick); //Time increment in seconds since last cycle
 	float error = tempval - GetTargetTemp(); //Temperature error
-	float newintegral;
 
 #ifdef PID_ALGO_STATS
 	outputsum+=output*dtick;
@@ -331,7 +331,7 @@ float PIDControl()
 
 		if(integralforcedupdate && terrorforecast < -rampthresh) {
 
-			if(terrorforecast < -rampthresh || terrorforecast > rampthresh) integral=PIDControlGetPreviousAxeMaxOutput();
+			if(terrorforecast < -rampthresh || terrorforecast > rampthresh) integral=PIDControlGetPreviousAveMaxOutput();
 			integralforcedupdate=false;
 		}
 	}
@@ -403,31 +403,19 @@ float PIDControl()
 				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (waiting for ramp effect)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
-				//It is possible to greatly simplify the code below if ramp post states are no longer needed and the current
-				//integral updating algorithm turn out to be optimal.
 
 				if(tderiv >= 0) {
 
 					if(sectderiv < 0) {
 						//Use an estimate of the average power since the last temperature maximum to the forecasted time of
 						//the next temperature maximum as an estimate for the integral term
-						float newintegral=PIDControlGetNextAxeMaxOutput(temptick, tderiv / -sectderiv);
-
-						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
-						//between the projected estimate and the current value is used, but only if we are still expecting to overshoot.
-						if(error > (tderiv*tderiv)/(2*sectderiv) && integral>newintegral) integral=newintegral;
+						integral=PIDControlGetNextAveMaxOutput(temptick, tderiv / -sectderiv);
 						integralforcedupdate=true;
 
 						if(error<0) rampstate=kRampPostMax;
 						else rampstate=kRampDisabled;
 
 					} else {
-						//Temperature is rising and accelerating, so an estimate for the next maximum cannot be computed.
-						newintegral=PIDControlGetPreviousAxeMaxOutput();
-
-						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
-						//between the last value and the current value is used.
-						if(integral>newintegral) integral=newintegral;
 						integralforcedupdate=true;
 						rampstate=kRampDisabled;
 					}
@@ -437,21 +425,13 @@ float PIDControl()
 
 					if(sectderiv < 0) {
 						//Assertion: The temperature peaked very recently so we should know the best integral estimate
-						newintegral=PIDControlGetPreviousAxeMaxOutput();
-
-						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
-						//between the last value and the current value is used.
-						if(integral>newintegral) integral=newintegral;
+						integral=PIDControlGetPreviousAveMaxOutput();
 						integralforcedupdate=false;
 						rampstate=kRampDisabled;
 
 					} else {
 						//Temperature is dropping but might reach a minimum soon
-						newintegral=PIDControlGetPreviousAxeMaxOutput();
-
-						//Since the power is turned off to prevent the temperature from overshooting, the smallest value
-						//between the last value and the current value is used.
-						if(integral>newintegral) integral=newintegral;
+						integral=PIDControlGetPreviousAveMaxOutput();
 						integralforcedupdate=true;
 
 						if(error>0 && sectderiv>0) rampstate=kRampPostMin;
