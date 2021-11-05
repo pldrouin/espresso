@@ -114,11 +114,13 @@ void PIDControlInit()
 	theta0nticks=ceil(theta0*TIMER_N_TICKS_PER_SEC);
 	derivencalls=ceil(derivetime*callspersec);
 	roundedtheta0=ceil(theta0*callspersec)/callspersec;
-	doalength=ceil(ceil(theta0*callspersec))+1;
+	doalength=ceil(theta0*callspersec)+1;
 	moalength=ceil(0.5*ceil(theta0*callspersec))+1;
 	errorvalues=(float*)malloc((derivencalls+1)*sizeof(float));
 	derivvalues=(float*)malloc((derivencalls+1)*sizeof(float));
-	memset(errorvalues,0,(derivencalls+1)*sizeof(float));
+	const float error= lasttemp - GetTargetTemp();
+
+	for(int i=derivencalls; i>=0; --i)  errorvalues[i]=error;
 	memset(derivvalues,0,(derivencalls+1)*sizeof(float));
 	delayedoutputs=(float*)malloc(doalength*sizeof(float));
 	maxoutputsums=(float*)malloc(moalength*sizeof(float));
