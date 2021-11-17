@@ -477,18 +477,18 @@ float PIDControl()
 
 	    else dterm = tderiv * -Dgain;
 	    */
-		if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
-		(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
-			dterm=0;
-			printf("PI  ");
-
-		} else {
-			dterm = tderiv * -Dgain;
-			printf("PID ");
-		}
-
 		//If outside the deadband, the integral value needs to be updated
 		if(fabsf(error) > deadband) {
+
+			if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
+					(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
+				dterm=0;
+				printf("PI  ");
+
+			} else {
+				dterm = tderiv * -Dgain;
+				printf("PID ");
+			}
 
 			const float defpterm = Pgain * -error;
 			//Default PID P term value
@@ -563,6 +563,16 @@ float PIDControl()
 
 			//Else if within the PID deadband
 		} else {
+
+			if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
+					(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
+				dterm=0;
+				printf("P   ");
+
+			} else {
+				dterm = tderiv * -Dgain;
+				printf("PD  ");
+			}
 			float pterm = Pgain * -error;
 			output = pterm + integral + dterm;
 
@@ -572,7 +582,7 @@ float PIDControl()
 			} else if(output < 0) {
 				output=0;
 			}
-			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=>0.00%%<, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
+			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=  0.00%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 		}
 	}
 
