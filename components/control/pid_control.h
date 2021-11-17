@@ -24,6 +24,7 @@ void PIDSetDeriveTime(const float& time=1.00);
 void PIDSetRampThreshold(const float& thresh);
 void PIDSetDeadband(const float& dband);
 void PIDSetIntegral(const float& theintegral);
+void PIDSetNIntegralEstimateCycles(const uint8_t& numcycles);
 
 void PIDPrintParams();
 

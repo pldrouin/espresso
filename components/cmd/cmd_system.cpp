@@ -462,6 +462,46 @@ static struct {
 	struct arg_end *end;
 } int_args;
 
+/* 'set_pid_num_integral_estimate_cycles' command */
+static int cmd_set_pid_num_integral_estimate_cycles(int argc, char **argv)
+{
+	int nerrors = arg_parse(argc, argv, (void **) &int_args);
+	if (nerrors != 0) {
+		arg_print_errors(stderr, int_args.end, argv[0]);
+		return 1;
+	}
+
+	if(int_args.i->count) {
+
+		if(int_args.i->ival[0]<1) {
+			ESP_LOGE("", "The number of integral estimate cycles must be larger than 0");
+			return 1;
+		}
+
+		if(int_args.i->ival[0]>255) {
+			ESP_LOGE("", "The number of integral estimate cycles must smaller than 256");
+			return 1;
+		}
+		PIDSetNIntegralEstimateCycles(int_args.i->ival[0]);
+	}
+    return 0;
+}
+
+static void register_set_pid_num_integral_estimate_cycles(void)
+{
+    int_args.i = arg_int1(NULL, NULL, "<level>", "PID number of integral estimate cycles");
+    int_args.end = arg_end(1);
+
+    const esp_console_cmd_t cmd = {
+        .command = "set_pid_num_integral_estimate_cycles",
+        .help = "Set PID the number of integral estimate cycles",
+        .hint = NULL,
+        .func = &cmd_set_pid_num_integral_estimate_cycles,
+		.argtable = &int_args
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
 /* 'set_temp_noise' command */
 static int cmd_set_temp_noise(int argc, char **argv)
 {
@@ -691,6 +731,7 @@ void register_system(void)
 	register_set_pid_ramp_threshold();
 	register_set_pid_deadband();
 	register_set_pid_integral();
+	register_set_pid_num_integral_estimate_cycles();
 	register_set_temp_noise();
 	register_set_output_step();
 	register_set_n_lookback_samples();

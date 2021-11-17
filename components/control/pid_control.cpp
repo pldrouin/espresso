@@ -15,6 +15,8 @@
 //kRampDisabled: Regular PID algorithm
 enum ramp_state_type {kRampActive=0, kRampWait=1, kRampDisabled=2};
 
+enum ramp_reason_type {kTempTooLow=0, kTempTooHigh=1};
+
 static const uint32_t ticksbetweencalls=ALARM_N_TICKS*CONFIG_CONTROLLER_SAMPLING_PERIOD_N_SAMPLES;
 static const float secsbetweencalls=(float)ticksbetweencalls/TIMER_N_TICKS_PER_SEC;
 static const float callspersec=(float)TIMER_N_TICKS_PER_SEC/ticksbetweencalls;
@@ -35,15 +37,18 @@ static uint8_t rampstate; //State machine state for ramp mode
 static uint16_t ridx; //Index used to compute the temperature derivative using a rolling time window
 static int16_t doidx; //Index used for the delayedouputs array
 static int16_t maxidx; //Index used for the maxoutputsums array
+//static int16_t reasonidx; //Index used for the rampreasons array
 static float* errorvalues; //Array used to compute the temperature derivative using a rolling time window
 static float* derivvalues; //Array used to compute the second order temperature derivative using a rolling time window
 static float* delayedoutputs; //Used to store outputs over one deadtime
 static float* maxoutputsums; //Used to store the sums of output*dtick for all the maxima, with enough cells for a whole deadtime
 static uint32_t* maxoutputdticks; //Used to store the dticks for all the maxima, with enough cells for a while deadtime
+//static uint8_t* rampreasons; //Reason to activate ramp mode
 static float lastmaxoutputave; //Output average leading to the previous maximum
 static uint8_t integralforcedupdate;
 
 static float theta0=0; //Total deadtime (in seconds)
+static uint8_t namocycles=2; //Number of cycles used to compute the average output between maximum outputs
 static uint32_t theta0nticks; //Total deadtime (in ticks);
 static float roundedtheta0; //Total deadtime rounded up to the next multiple of PID cycle time
 static uint16_t derivencalls; //Number of PID cycles for the temperature derivative using a rolling time window
@@ -92,6 +97,11 @@ void PIDSetIntegral(const float& theintegral)
 	integral=theintegral;
 }
 
+void PIDSetNIntegralEstimateCycles(const uint8_t& numcycles)
+{
+	namocycles=numcycles;
+}
+
 void PIDPrintParams()
 {
 	printf("Pgain (Kc)=%10.6f, Igain=%10.6f/s, Dgain=%10.6fs, Ti=%7.4fs, Td=%7.4fs, deadband=%5.3f C, derivetime=%7.4f\n",Pgain,Igain,Dgain,Ti,Td,deadband,derivetime);
@@ -125,14 +135,18 @@ void PIDControlInit()
 	delayedoutputs=(float*)malloc(doalength*sizeof(float));
 	maxoutputsums=(float*)malloc(moalength*sizeof(float));
 	maxoutputdticks=(uint32_t*)malloc(moalength*sizeof(uint32_t));
+	//rampreasons=(uint8_t*)malloc(namocycles*sizeof(uint8_t));
 	memset(delayedoutputs,0,doalength*sizeof(float));
 	memset(maxoutputsums,0,moalength*sizeof(float));
-	memset(maxoutputdticks+1,0,(moalength-2)*sizeof(uint32_t));
+	memset(maxoutputdticks+1,0,(moalength-1-namocycles)*sizeof(uint32_t));
 	maxoutputdticks[0]=lasttemptick;
-	maxoutputdticks[moalength-1]=theta0nticks;
+	//memset(rampreasons,0,namocycles*sizeof(uint8_t));
+
+	for(int i=1; i<=namocycles; ++i) maxoutputdticks[moalength-i]=theta0nticks;
 	ridx=0;
 	doidx=0;
 	maxidx=0;
+	//reasonidx=0;
 	integralforcedupdate=2;
 	lastmaxoutputave=0;
 	integral=0;
@@ -145,6 +159,7 @@ void PIDControlDeinit()
 	free(delayedoutputs);
 	free(maxoutputsums);
 	free(maxoutputdticks);
+	//free(rampreasons);
 }
 
 float PIDControlGetPreviousAveMaxOutput()
@@ -154,53 +169,35 @@ float PIDControlGetPreviousAveMaxOutput()
 	float sum=maxoutputsums[idx];
 
 	if(nticks<theta0nticks) {
-		int16_t i;
+		int16_t i,j=1;
 		idx=(idx-1)%moalength;
 
 		if(idx<maxidx) {
 
 			for(i=idx; i>=0; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_prev_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_prev_amo;
+				++j;
 			}
 
 			for(i=moalength-1; i>maxidx; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_prev_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_prev_amo;
+				++j;
 			}
 
 		} else {
 
 			for(i=idx; i>maxidx; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_prev_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_prev_amo;
+				++j;
 			}
 		}
 	}
@@ -220,54 +217,36 @@ float PIDControlGetNextAveMaxOutput(const uint32_t& nowticks, const float& dtime
 	uint32_t nticks=nowticks-maxoutputdticks[maxidx];
 	float sum=maxoutputsums[maxidx];
 
-	if(nticks<theta0nticks) {
-		int16_t i;
+	if(namocycles>1 || nticks<theta0nticks) {
+		int16_t i,j=1;
 		idx=(maxidx-1)%moalength;
 
 		if(idx<maxidx) {
 
 			for(i=idx; i>=0; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_next_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_next_amo;
+				++j;
 			}
 
 			for(i=moalength-1; i>maxidx; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_next_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_next_amo;
+				++j;
 			}
 
 		} else {
 
 			for(i=idx; i>maxidx; --i) {
+				sum+=maxoutputsums[i];
+				nticks+=maxoutputdticks[i];
 
-				if(nticks+maxoutputdticks[i] >= theta0nticks) {
-					sum+=maxoutputsums[i]*(theta0nticks-nticks)/(float)maxoutputdticks[i];
-					nticks=theta0nticks;
-
-					goto found_next_amo;
-
-				} else {
-					sum+=maxoutputsums[i];
-					nticks+=maxoutputdticks[i];
-				}
+				if(j>=namocycles && nticks >= theta0nticks) goto found_next_amo;
+				++j;
 			}
 		}
 	}
@@ -344,7 +323,6 @@ float PIDControl()
 	//Forecasted values are computed one deadtime into the future
 	const float terrorforecast = error + roundedtheta0 * (tderiv + roundedtheta0 * 0.5 * sectderiv);
 	//const float tderivforecast = tderiv + sectderiv * roundedtheta0;
-	//printf("Derivative: %9.6f C/s, Second Derivative: %9.6f C/s^2, Error forecast: %6.2f C, Derivative forecast: %9.6f C/s\n",tderiv,sectderiv,terrorforecast,tderivforecast);
 	printf("Derivative: %9.6f C/s, Second Derivative: %9.6f C/s^2, Error forecast: %6.2f C\n",tderiv,sectderiv,terrorforecast);
 
 	if(tderiv<=0 && lasttderiv>0 && sectderiv<0) {
@@ -357,26 +335,11 @@ float PIDControl()
 
 		if(integralforcedupdate) {
 
-			/*
-			if(error > 0.5*rampthresh) {
-
-				if(newlastmaxoutputave>integral) integral=0.5*(integral+newlastmaxoutputave);
-
-				else integral=newlastmaxoutputave;
-				printf("Integral value set to %7.3f%%\n",integral);
-
-			} else if(error < -0.5*rampthresh) {
-
-				if(newlastmaxoutputave<integral) integral=0.5*(integral+newlastmaxoutputave);
-
-				else integral=newlastmaxoutputave;
-				printf("Integral value set to %7.3f%%\n",integral);
-			}
-			*/
-			if(fabs(error) > 0.5*rampthresh || integralforcedupdate==2) {
+			//if((fabs(error) > 0.5*rampthresh || integralforcedupdate==2) &&
+			//if(!(rampreasons[reasonidx]==kTempTooLow && newlastmaxoutputave<integral) && !(rampreasons[reasonidx]==kTempTooHigh && newlastmaxoutputave>integral)) {
 				integral=newlastmaxoutputave;
-				printf("Integral value set to %7.3f%%\n",integral);
-			}
+				printf("Integral value set to %7.3f%%\n",integral*100);
+			//}
 			integralforcedupdate=0;
 		}
 		lastmaxoutputave=newlastmaxoutputave;
@@ -391,6 +354,8 @@ float PIDControl()
 		if(terrorforecast < -rampthresh) {
 			output=1;
 			rampstate=kRampActive;
+			//rampreasons[reasonidx]=kTempTooLow;
+			//reasonidx=(reasonidx+1)%namocycles;
 			printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
 		//Else if the temperature is above the ramp threshold
@@ -404,6 +369,8 @@ float PIDControl()
 			if(terrorforecast>rampthresh) {
 				output=0;
 				rampstate=kRampWait;
+  			    //rampreasons[reasonidx]=kTempTooHigh;
+			    //reasonidx=(reasonidx+1)%namocycles;
 				printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
 			}
 		}
@@ -466,7 +433,10 @@ float PIDControl()
                         	else integral=newintegral;
                         }
                         else integral=newintegral;*/
-						integral=PIDControlGetNextAveMaxOutput(temptick, tderiv / -sectderiv);
+						float newintegral=PIDControlGetNextAveMaxOutput(temptick, tderiv / -sectderiv);
+
+						//if(!(rampreasons[reasonidx]==kTempTooLow && newintegral<integral) && !(rampreasons[reasonidx]==kTempTooHigh && newintegral>integral))
+					    integral=newintegral;
 						rampstate=kRampDisabled;
 				        printf("TSC %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
 
