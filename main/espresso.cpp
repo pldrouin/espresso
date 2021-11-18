@@ -36,7 +36,7 @@ void config_and_start()
 	SetTempNoise(0.05);
 	PIDSetParams(0.315, 3.5, 0.5, 5, 0.5);
 	PIDSetDeriveTime(1);
-	PIDSetRampThreshold(0.5);
+	PIDSetRampThreshold(0.6);
 	PIDSetDeadband(0.03);
 	PIDSetLimitParams(1, 0);
 	ControllerInit();
