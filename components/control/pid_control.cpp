@@ -389,8 +389,8 @@ float PIDControl()
 
 				if(!aggressive_ramp) {
 					aggressive_ramp=true;
-				    integral=maxintegralvalue;
-			        printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting aggressive ramp)\n",Tick2Sec(temptick),tempval,100*integral);
+					integral=maxintegralvalue;
+					printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting aggressive ramp)\n",Tick2Sec(temptick),tempval,100*integral);
 					integralforcedupdate=nifucycles;
 				}
 
@@ -407,11 +407,11 @@ float PIDControl()
 				if(terrorforecast < 0) {
 
 					if(aggressive_ramp || (!first_ramp && eoaready)) {
-				        integral=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
+						integral=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
 
 						if(integral>maxintegralvalue) integral=maxintegralvalue;
 						aggressive_ramp=false;
-					    printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
+						printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
 					}
 
 				} else {
@@ -423,7 +423,7 @@ float PIDControl()
 						integral=PIDControlGetNextAveMaxOutput(minoutputsums, minoutputdticks, minidx, temptick, (zderivdt<theta0 ? zderivdt : theta0));
 					}
 					printf("Integral value set to %7.3f%%\n",integral*100);
-					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*integral);
+					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting regular PID)\n",Tick2Sec(temptick),tempval,100*integral);
 				}
 			}
 
@@ -434,8 +434,8 @@ float PIDControl()
 
 				if(!aggressive_ramp) {
 					aggressive_ramp=true;
-			        integral=minintegralvalue;
-    			    printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now aggressively waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
+					integral=minintegralvalue;
+					printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now aggressively waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
 					integralforcedupdate=nifucycles;
 				}
 
@@ -452,11 +452,11 @@ float PIDControl()
 				if(terrorforecast > 0) {
 
 					if(aggressive_ramp || (!first_ramp && eoaready)) {
-				        integral=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
+						integral=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
 
 						if(integral<minintegralvalue) integral=minintegralvalue;
 						aggressive_ramp=false;
-					    printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
+						printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
 					}
 
 				} else {
@@ -469,123 +469,120 @@ float PIDControl()
 					}
 
 					printf("Integral value set to %7.3f%%\n",integral*100);
-					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*integral);
+					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting regular PID)\n",Tick2Sec(temptick),tempval,100*integral);
 				}
 			}
 		}
 		eoaready=false;
 	}
 
-	//if(rampstate>=kRampDisabled) {
+	//If outside the deadband, the integral value needs to be updated
+	if(fabsf(error) > deadband) {
 
-		//If outside the deadband, the integral value needs to be updated
-		if(fabsf(error) > deadband) {
+		if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
+				(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
+			dterm=0;
+			printf("PI : ");
 
-			if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
-					(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
-				dterm=0;
-				printf("PI : ");
+		} else {
+			dterm = tderiv * -Dgain;
+			printf("PID: ");
+		}
 
-			} else {
-				dterm = tderiv * -Dgain;
-				printf("PID: ");
-			}
+		const float defpterm = Pgain * -error;
+		//Default PID P term value
+		float pterm = defpterm;
+		//Initial PID I term increment
+		float diterm = Igain * dtime * -error;
+		//Initial PID P+I terms
+		float errorterm = defpterm + diterm;
 
-			const float defpterm = Pgain * -error;
-			//Default PID P term value
-			float pterm = defpterm;
-			//Initial PID I term increment
-			float diterm = Igain * dtime * -error;
-			//Initial PID P+I terms
-			float errorterm = defpterm + diterm;
+		//Initial scaling factor value
+		float errorscale=1;
 
-			//Initial scaling factor value
-			float errorscale=1;
+		//Initial PID output value
+		output = errorterm + integral + dterm;
 
-			//Initial PID output value
-			output = errorterm + integral + dterm;
+		//If maxing out the output
+		if(output > 1) {
+			errorscale = (1 - output + errorterm) / errorterm;
+			output=1;
+			diterm *= errorscale;
+			integral += diterm;
 
-			//If maxing out the output
-			if(output > 1) {
-				errorscale = (1 - output + errorterm) / errorterm;
-				output=1;
-				diterm *= errorscale;
-				integral += diterm;
+			//If reaching the integral upper bound
+			if(integral > maxintegralvalue) {
+				diterm = maxintegralvalue - integral;
+				integral = maxintegralvalue;
+				pterm = 1 - (integral + dterm);
 
-				//If reaching the integral upper bound
-				if(integral > maxintegralvalue) {
-					diterm = maxintegralvalue - integral;
-					integral = maxintegralvalue;
-					pterm = 1 - (integral + dterm);
-
-					if(pterm > defpterm) {
-						pterm = defpterm;
-						output = pterm + integral + dterm;
-					}
-
-				} else pterm = 1 - (integral + dterm);
-
-				//If zeroing the output
-			} else if(output < 0) {
-				errorscale = (errorterm - output) / errorterm;
-				output = 0;
-				diterm *= errorscale;
-				integral += diterm;
-
-				//If reaching the integral lower bound
-				if(integral < minintegralvalue) {
-					diterm = integral - minintegralvalue;
-					integral = minintegralvalue;
-					pterm = -(integral + dterm);
-
-					if(pterm < defpterm) {
-						pterm = defpterm;
-						output = pterm + integral + dterm;
-					}
-
-				} else pterm = -(integral + dterm);
-
-				//Else if the errorterm is not saturating the output
-			} else {
-				integral += diterm;
-
-				if(integral > maxintegralvalue) {
-					diterm = maxintegralvalue - integral;
-					integral = maxintegralvalue;
-					output = pterm + integral + dterm;
-
-				} else if(integral < minintegralvalue) {
-					diterm = integral - minintegralvalue;
-					integral = minintegralvalue;
+				if(pterm > defpterm) {
+					pterm = defpterm;
 					output = pterm + integral + dterm;
 				}
-			}
-			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
 
-			//Else if within the PID deadband
+			} else pterm = 1 - (integral + dterm);
+
+			//If zeroing the output
+		} else if(output < 0) {
+			errorscale = (errorterm - output) / errorterm;
+			output = 0;
+			diterm *= errorscale;
+			integral += diterm;
+
+			//If reaching the integral lower bound
+			if(integral < minintegralvalue) {
+				diterm = integral - minintegralvalue;
+				integral = minintegralvalue;
+				pterm = -(integral + dterm);
+
+				if(pterm < defpterm) {
+					pterm = defpterm;
+					output = pterm + integral + dterm;
+				}
+
+			} else pterm = -(integral + dterm);
+
+			//Else if the errorterm is not saturating the output
 		} else {
+			integral += diterm;
 
-			if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
-					(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
-				dterm=0;
-				printf("P  : ");
+			if(integral > maxintegralvalue) {
+				diterm = maxintegralvalue - integral;
+				integral = maxintegralvalue;
+				output = pterm + integral + dterm;
 
-			} else {
-				dterm = tderiv * -Dgain;
-				printf("P D: ");
+			} else if(integral < minintegralvalue) {
+				diterm = integral - minintegralvalue;
+				integral = minintegralvalue;
+				output = pterm + integral + dterm;
 			}
-			float pterm = Pgain * -error;
-			output = pterm + integral + dterm;
-
-			if(output > 1) {
-				output=1;
-
-			} else if(output < 0) {
-				output=0;
-			}
-			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=  0.00%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 		}
-	//}
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=%6.2f%%, D=%6.2f%%, I=%6.2f%%, Escale=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*diterm,100*dterm,100*integral,100*errorscale);
+
+		//Else if within the PID deadband
+	} else {
+
+		if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
+				(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
+			dterm=0;
+			printf("P  : ");
+
+		} else {
+			dterm = tderiv * -Dgain;
+			printf("P D: ");
+		}
+		float pterm = Pgain * -error;
+		output = pterm + integral + dterm;
+
+		if(output > 1) {
+			output=1;
+
+		} else if(output < 0) {
+			output=0;
+		}
+		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=  0.00%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
+	}
 
 	delayedoutputs[doidx]=output;
 	doidx=(doidx+1)%doalength;
