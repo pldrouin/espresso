@@ -34,6 +34,7 @@ static float avecycletemp; //Used to compute average temperature for reporting p
 static bool clearednoise; //Used to prevent triggering on noise when computing statistics for reporting purpose
 #endif
 static uint8_t rampstate; //State machine state for ramp mode
+static bool first_ramp;
 static bool aggressive_ramp;
 static uint16_t ridx; //Index used to compute the temperature derivative using a rolling time window
 static int16_t doidx; //Index used for the delayedouputs array
@@ -47,7 +48,11 @@ static float* maxoutputsums; //Used to store the sums of output*dtick for all th
 static uint32_t* minoutputdticks; //Used to store the dticks for all the minima, with enough cells for a while deadtime
 static uint32_t* maxoutputdticks; //Used to store the dticks for all the maxima, with enough cells for a while deadtime
 static float lastextoutputave; //Output average leading to the previous extremum
-static uint8_t integralforcedupdate;
+static bool eoaready; //Output average at extremum ready
+static bool lasteoamax; //Last extremum output average was a max
+static uint8_t integralforcedupdate; //Number of remaining forced update iterations
+static uint8_t nifucycles=4; //Number of integral forced update cycles
+static bool lastifuup;  //Last integral forced update was up (error>0)
 
 static float theta0=0; //Total deadtime (in seconds)
 static uint8_t naeocycles=1; //Number of cycles used to compute the average output between temperature extrema
@@ -150,8 +155,11 @@ void PIDControlInit()
 	ridx=0;
 	doidx=0;
 	maxidx=0;
-	integralforcedupdate=2;
+	integralforcedupdate=0;
 	lastextoutputave=0;
+	lastifuup=true;
+	eoaready=false;
+	lasteoamax=true;
 	integral=0;
 }
 
@@ -331,41 +339,25 @@ float PIDControl()
 	//const float tderivforecast = tderiv + sectderiv * roundedtheta0;
 	printf("Derivative: %9.6f C/s, Second Derivative: %9.6f C/s^2, Error forecast: %6.2f C\n",tderiv,sectderiv,terrorforecast);
 
-	if(tderiv>=0 && lasttderiv<0 && sectderiv>0) {
+	if(lasteoamax && tderiv>=0 && lasttderiv<0 && sectderiv>0) {
 		minoutputdticks[minidx]=temptick-minoutputdticks[minidx];
 		printf("Computed new min-based average output is %7.3f%%, cycle time was %8.3f\n",minoutputsums[minidx]/minoutputdticks[minidx]*100,Tick2Sec(minoutputdticks[minidx]));
 		minidx=(minidx+1)%eoalength;
-		float newlastextoutputave=PIDControlGetPreviousAveExtOutput(minoutputsums, minoutputdticks, minidx);
+		lastextoutputave=PIDControlGetPreviousAveExtOutput(minoutputsums, minoutputdticks, minidx);
 		minoutputsums[minidx]=0;
 		minoutputdticks[minidx]=temptick;
+		eoaready=true;
+		lasteoamax=false;
 
-		if(integralforcedupdate) {
-
-			//if((fabs(error) > 0.5*rampthresh || integralforcedupdate==2) &&
-				integral=newlastextoutputave;
-				printf("Integral value set to %7.3f%%\n",integral*100);
-			//}
-			--integralforcedupdate;
-		}
-		lastextoutputave=newlastextoutputave;
-
-	} else if(tderiv<=0 && lasttderiv>0 && sectderiv<0) {
+	} else if(!lasteoamax && tderiv<=0 && lasttderiv>0 && sectderiv<0) {
 		maxoutputdticks[maxidx]=temptick-maxoutputdticks[maxidx];
 		printf("Computed new max-based average output is %7.3f%%, cycle time was %8.3f\n",maxoutputsums[maxidx]/maxoutputdticks[maxidx]*100,Tick2Sec(maxoutputdticks[maxidx]));
 		maxidx=(maxidx+1)%eoalength;
-		float newlastextoutputave=PIDControlGetPreviousAveExtOutput(maxoutputsums, maxoutputdticks, maxidx);
+		lastextoutputave=PIDControlGetPreviousAveExtOutput(maxoutputsums, maxoutputdticks, maxidx);
 		maxoutputsums[maxidx]=0;
 		maxoutputdticks[maxidx]=temptick;
-
-		if(integralforcedupdate) {
-
-			//if((fabs(error) > 0.5*rampthresh || integralforcedupdate==2) &&
-				integral=newlastextoutputave;
-				printf("Integral value set to %7.3f%%\n",integral*100);
-			//}
-			--integralforcedupdate;
-		}
-		lastextoutputave=newlastextoutputave;
+		eoaready=true;
+		lasteoamax=true;
 	}
 
 	//Note: A full rampthreshold discrepancy is required to exit PID or to reactivate the ramp, but 1/2 discrepancy is required to reenter.
@@ -373,43 +365,59 @@ float PIDControl()
 	//If the PID algorithm is active
 	if(rampstate>=kRampDisabled) {
 
+		if(eoaready) {
+			eoaready=false;
+
+			if(integralforcedupdate) {
+				integral=lastextoutputave;
+				printf("Integral value set to %7.3f%%\n",integral*100);
+
+				if(lastifuup^(error>0)) {
+					--integralforcedupdate;
+					lastifuup=!lastifuup;
+				}
+			}
+		}
+
 		//If the temperature drifted down below the ramp threshold
-		if(terrorforecast < -rampthresh) {
+		if(terrorforecast < -(integralforcedupdate?0.5*rampthresh:rampthresh)) {
 			//output=1;
 			rampstate=kRampActive;
 			aggressive_ramp=false;
 
 			if(integralforcedupdate) {
-				integral*=1.5;
+				first_ramp=false;
+				output=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*integral;
 
-				if(integral>maxintegralvalue) integral=maxintegralvalue;
+				if(output>maxintegralvalue) output=maxintegralvalue;
 
-			} else integral=maxintegralvalue;
-			integralforcedupdate=2;
-			printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
-
-		//Else if the temperature is above the ramp threshold
-		} else {
-
-			//If post ramp state, can switch into regular PID mode
-			//Note: The PID derivative term does not affect the integral directly, so it is better to deactivate it when turning
-			//on the PID algorithm before reaching a maximum or a minimum in order to reach it as fast as possible to avoid affecting the integral
-			//term more than necessary through the error.
-
-			if(terrorforecast>rampthresh) {
-				//output=0;
-				rampstate=kRampWait;
-			    aggressive_ramp=false;
-
-				if(integralforcedupdate) {
-					integral*=0.5;
-
-					if(integral<minintegralvalue) integral=minintegralvalue;
-
-				} else integral=minintegralvalue;
-			    integralforcedupdate=2;
-				printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
+			} else {
+				first_ramp=true;
+				output=maxintegralvalue;
 			}
+
+			if(terrorforecast < rampthresh) integralforcedupdate=nifucycles;
+			printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
+
+			//Else if the temperature is above the ramp threshold
+		} else if(terrorforecast > (integralforcedupdate?0.5*rampthresh:rampthresh)) {
+			//output=0;
+			rampstate=kRampWait;
+			aggressive_ramp=false;
+
+			if(integralforcedupdate) {
+				first_ramp=false;
+				output=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*integral;
+
+				if(output<minintegralvalue) output=minintegralvalue;
+
+			} else {
+				first_ramp=true;
+				output=minintegralvalue;
+			}
+
+			if(terrorforecast > rampthresh) integralforcedupdate=nifucycles;
+			printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
 		}
 
 		//Else if the PID algorithm was not active
@@ -421,32 +429,49 @@ float PIDControl()
 			if(terrorforecast < -0.5*rampthresh && error < -0.5*rampthresh) {
 
 				if(!aggressive_ramp) {
-					integralforcedupdate=2;
 					aggressive_ramp=true;
-			        printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
+					integralforcedupdate=nifucycles;
 				}
-				integral=maxintegralvalue;
-
-			} else if(terrorforecast < 0) {
-
-				if(aggressive_ramp) {
-					aggressive_ramp=false;
-					integralforcedupdate=2;
-					printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
-				}
-				integral=1.5*lastextoutputave;
-
-				if(integral>maxintegralvalue) integral=maxintegralvalue;
+				output=maxintegralvalue;
+			    printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting aggressive ramp)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
-				rampstate=kRampDisabled;
 
-				if(tderiv <= 0 && sectderiv > 0) {
-					float zderivdt=-tderiv/sectderiv;
-					integral=PIDControlGetNextAveMaxOutput(minoutputsums, minoutputdticks, minidx, temptick, (zderivdt<theta0 ? zderivdt : theta0));
+				if(eoaready) {
+					eoaready=false;
+
+					if(integralforcedupdate && (lastifuup^(error>0))) {
+						--integralforcedupdate;
+						lastifuup=!lastifuup;
+					}
 				}
 
-				printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
+				if(terrorforecast < 0) {
+
+					if(aggressive_ramp) {
+				        output=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
+
+						if(output>maxintegralvalue) output=maxintegralvalue;
+						aggressive_ramp=false;
+
+					} else if(!first_ramp) {
+				        output=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
+
+						if(output>maxintegralvalue) output=maxintegralvalue;
+					}
+					printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*output);
+
+				} else {
+					rampstate=kRampDisabled;
+					integral=lastextoutputave;
+
+					if(tderiv <= 0 && sectderiv > 0) {
+						float zderivdt=-tderiv/sectderiv;
+						integral=PIDControlGetNextAveMaxOutput(minoutputsums, minoutputdticks, minidx, temptick, (zderivdt<theta0 ? zderivdt : theta0));
+					}
+					printf("Integral value set to %7.3f%%\n",integral*100);
+					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*integral);
+				}
 			}
 
 			//If waiting for the temperature to stop increasing at the end of the ramp mode
@@ -455,37 +480,55 @@ float PIDControl()
 			if(terrorforecast > 0.5*rampthresh && error > 0.5*rampthresh) {
 
 				if(!aggressive_ramp) {
-					integralforcedupdate=2;
 					aggressive_ramp=true;
-     				printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
+					integralforcedupdate=nifucycles;
 				}
-				integral=minintegralvalue;
-
-			} else if(terrorforecast > 0) {
-
-				if(aggressive_ramp) {
-					aggressive_ramp=false;
-					integralforcedupdate=2;
-					printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
-				}
-				integral=0.5*lastextoutputave;
-
-				if(integral<minintegralvalue) integral=minintegralvalue;
+			    output=minintegralvalue;
+    			printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now aggressively waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
 
 			} else {
-				rampstate=kRampDisabled;
 
-				if(tderiv >= 0 && sectderiv < 0) {
-					float zderivdt=-tderiv/sectderiv;
-					integral=PIDControlGetNextAveMaxOutput(maxoutputsums, maxoutputdticks, maxidx, temptick, (zderivdt<theta0 ? zderivdt : theta0));
+				if(eoaready) {
+					eoaready=false;
+
+					if(integralforcedupdate && (lastifuup^(error>0))) {
+						--integralforcedupdate;
+						lastifuup=!lastifuup;
+					}
 				}
 
-				printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*output);
+				if(terrorforecast > 0) {
+
+					if(aggressive_ramp) {
+				        output=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
+
+						if(output<minintegralvalue) output=minintegralvalue;
+						aggressive_ramp=false;
+
+					} else if(!first_ramp) {
+				        output=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
+
+						if(output<minintegralvalue) output=minintegralvalue;
+					}
+					printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*output);
+
+				} else {
+					rampstate=kRampDisabled;
+					integral=lastextoutputave;
+
+					if(tderiv >= 0 && sectderiv < 0) {
+						float zderivdt=-tderiv/sectderiv;
+						integral=PIDControlGetNextAveMaxOutput(maxoutputsums, maxoutputdticks, maxidx, temptick, (zderivdt<theta0 ? zderivdt : theta0));
+					}
+
+					printf("Integral value set to %7.3f%%\n",integral*100);
+					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting PID)\n",Tick2Sec(temptick),tempval,100*integral);
+				}
 			}
 		}
 	}
 
-	//if(rampstate>=kRampDisabled) {
+	if(rampstate>=kRampDisabled) {
 
 		//No D term in ramp post mode because the derivative forecast is actually <= 0, while the current derivative is greater than 0.
 		//The forecasted value can be quite noisy though.
@@ -601,7 +644,7 @@ float PIDControl()
 			}
 			printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=  0.00%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 		}
-	//}
+	}
 
 	delayedoutputs[doidx]=output;
 	doidx=(doidx+1)%doalength;
