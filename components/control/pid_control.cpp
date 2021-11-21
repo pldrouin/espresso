@@ -276,11 +276,11 @@ float PIDControl()
 {
 	//Same thread as temperature, so we don't need to use non-blocking algorithms
 	uint32_t temptick=TempTick(); //Current time tick
-	float tempval=TempGetTempAve(); //Current temperature
+	const float tempval=TempGetTempAve(); //Current temperature
 
-	uint32_t dtick = temptick - lasttemptick; //Time increment in ticks since last cycle
-	float dtime = Tick2Sec(dtick); //Time increment in seconds since last cycle
-	float error = tempval - GetTargetTemp(); //Temperature error
+	const uint32_t dtick = temptick - lasttemptick; //Time increment in ticks since last cycle
+	const float dtime = Tick2Sec(dtick); //Time increment in seconds since last cycle
+	const float error = tempval - GetTargetTemp(); //Temperature error
 
 	const float dos=delayedoutputs[doidx]*dtick;
 	minoutputsums[minidx]+=dos;
@@ -299,7 +299,9 @@ float PIDControl()
 	//const float tderivforecast = tderiv + sectderiv * roundedtheta0;
 	printf("Derivative: %9.6f C/s, Second Derivative: %9.6f C/s^2, Error forecast: %6.2f C\n",tderiv,sectderiv,terrorforecast);
 
-	if(lasteoamax && tderiv>=0 && lasttderiv<0 && sectderiv>0) {
+	const bool isnotdeadband=(error>deadband && terrorforecast>deadband) || (error<-deadband && terrorforecast<-deadband);
+
+	if(tderiv>=0 && lasttderiv<0 && sectderiv>0) {
 		minoutputdticks[minidx]=temptick-minoutputdticks[minidx];
 		printf("Computed new min-based average output is %7.3f%%, cycle time was %8.3f\n",minoutputsums[minidx]/minoutputdticks[minidx]*100,Tick2Sec(minoutputdticks[minidx]));
 		minidx=(minidx+1)%eoalength;
@@ -309,7 +311,7 @@ float PIDControl()
 		eoaready=true;
 		lasteoamax=false;
 
-	} else if(!lasteoamax && tderiv<=0 && lasttderiv>0 && sectderiv<0) {
+	} else if(tderiv<=0 && lasttderiv>0 && sectderiv<0) {
 		maxoutputdticks[maxidx]=temptick-maxoutputdticks[maxidx];
 		printf("Computed new max-based average output is %7.3f%%, cycle time was %8.3f\n",maxoutputsums[maxidx]/maxoutputdticks[maxidx]*100,Tick2Sec(maxoutputdticks[maxidx]));
 		maxidx=(maxidx+1)%eoalength;
@@ -340,14 +342,14 @@ float PIDControl()
 		if(fabs(error) > deadband) {
 
 			//If the temperature drifted down below the ramp threshold
-			if(terrorforecast < -(integralforcedupdate?0.5*rampthresh:rampthresh)) {
+			if(terrorforecast < -rampthresh) {
 				//output=1;
 				rampstate=kRampActive;
 				aggressive_ramp=false;
 
 				if(integralforcedupdate) {
 					first_ramp=false;
-					integral=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
+					integral=(1+0.5*integralforcedupdate/nifucycles)*lastextoutputave;
 
 				} else {
 					first_ramp=true;
@@ -359,14 +361,14 @@ float PIDControl()
 				printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
 
 				//Else if the temperature is above the ramp threshold
-			} else if(terrorforecast > (integralforcedupdate?0.5*rampthresh:rampthresh)) {
+			} else if(terrorforecast > rampthresh) {
 				//output=0;
 				rampstate=kRampWait;
 				aggressive_ramp=false;
 
 				if(integralforcedupdate) {
 					first_ramp=false;
-					integral=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
+					integral=(1-0.5*integralforcedupdate/nifucycles)*lastextoutputave;
 
 				} else {
 					first_ramp=true;
@@ -407,7 +409,7 @@ float PIDControl()
 				if(terrorforecast < 0) {
 
 					if(aggressive_ramp || (!first_ramp && eoaready)) {
-						integral=(integralforcedupdate<nifucycles?1+0.5/(nifucycles/(integralforcedupdate+1)):1.5)*lastextoutputave;
+					    integral=(1+0.5*integralforcedupdate/nifucycles)*lastextoutputave;
 
 						if(integral>maxintegralvalue) integral=maxintegralvalue;
 						aggressive_ramp=false;
@@ -452,7 +454,7 @@ float PIDControl()
 				if(terrorforecast > 0) {
 
 					if(aggressive_ramp || (!first_ramp && eoaready)) {
-						integral=(integralforcedupdate<nifucycles?1-0.5/(nifucycles/(integralforcedupdate+1)):0.5)*lastextoutputave;
+					    integral=(1-0.5*integralforcedupdate/nifucycles)*lastextoutputave;
 
 						if(integral<minintegralvalue) integral=minintegralvalue;
 						aggressive_ramp=false;
@@ -477,7 +479,7 @@ float PIDControl()
 	}
 
 	//If outside the deadband, the integral value needs to be updated
-	if(fabsf(error) > deadband) {
+	if(isnotdeadband) {
 
 		if((tderiv > 0 && sectderiv < 0 && error < (tderiv*tderiv)/(2*sectderiv)) ||
 				(tderiv < 0 && sectderiv > 0 && error > (tderiv*tderiv)/(2*sectderiv))) {
