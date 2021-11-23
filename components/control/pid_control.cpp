@@ -31,12 +31,10 @@ static uint8_t rampstate; //State machine state for ramp mode
 static bool first_ramp;
 static bool aggressive_ramp;
 static uint16_t ridx; //Index used to compute the temperature derivative using a rolling time window
-static int16_t doidx; //Index used for the delayedouputs array
 static int16_t minidx; //Index used for the minoutputsums array
 static int16_t maxidx; //Index used for the maxoutputsums array
 static float* errorvalues; //Array used to compute the temperature derivative using a rolling time window
 static float* derivvalues; //Array used to compute the second order temperature derivative using a rolling time window
-static float* delayedoutputs; //Used to store outputs over one deadtime
 static float* minoutputsums; //Used to store the sums of output*dtick for all the minima, with enough cells for a whole deadtime
 static float* minerrorsums; //Used to store the sums of error*dtick for all the minima, with enough cells for a whole deadtime
 static float* maxoutputsums; //Used to store the sums of output*dtick for all the maxima, with enough cells for a whole deadtime
@@ -57,7 +55,6 @@ static uint8_t naeocycles=1; //Number of cycles used to compute the average outp
 static uint32_t theta0nticks; //Total deadtime (in ticks);
 static float roundedtheta0; //Total deadtime rounded up to the next multiple of PID cycle time
 static uint16_t derivencalls; //Number of PID cycles for the temperature derivative using a rolling time window
-static uint16_t doalength; //Number of cells in the delayedoutputs array (=ceil(ceil(theta0)/(secs/cycle))+1)
 static uint16_t eoalength; //Number of cells in the minoutput*sums and maxoutpu*tsums arrays (=ceil(0.5*ceil(theta0)/(secs/cycle))+1)
 static float derivetime=1; //Time interval used to compute the temperature derivative
 static float Pgain=0, Igain=0, Dgain=0, Ti=0, Td=0; //PID parameters
@@ -124,7 +121,6 @@ void PIDControlInit()
 	theta0nticks=ceil(theta0*TIMER_N_TICKS_PER_SEC);
 	derivencalls=ceil(derivetime*callspersec);
 	roundedtheta0=ceil(theta0*callspersec)/callspersec;
-	doalength=ceil(theta0*callspersec)+1;
 	eoalength=ceil(0.5*ceil(theta0*callspersec))+1;
 	errorvalues=(float*)malloc((derivencalls+1)*sizeof(float));
 	derivvalues=(float*)malloc((derivencalls+1)*sizeof(float));
@@ -132,14 +128,12 @@ void PIDControlInit()
 
 	for(int i=derivencalls; i>=0; --i)  errorvalues[i]=error;
 	memset(derivvalues,0,(derivencalls+1)*sizeof(float));
-	delayedoutputs=(float*)malloc(doalength*sizeof(float));
 	minoutputsums=(float*)malloc(eoalength*sizeof(float));
 	minerrorsums=(float*)malloc(eoalength*sizeof(float));
 	maxoutputsums=(float*)malloc(eoalength*sizeof(float));
 	maxerrorsums=(float*)malloc(eoalength*sizeof(float));
 	minoutputdticks=(uint32_t*)malloc(eoalength*sizeof(uint32_t));
 	maxoutputdticks=(uint32_t*)malloc(eoalength*sizeof(uint32_t));
-	memset(delayedoutputs,0,doalength*sizeof(float));
 	memset(minoutputsums,0,eoalength*sizeof(float));
 	memset(minerrorsums,0,eoalength*sizeof(float));
 	memset(maxoutputsums,0,eoalength*sizeof(float));
@@ -150,7 +144,6 @@ void PIDControlInit()
 
 	for(int i=1; i<=naeocycles; ++i) minoutputdticks[eoalength-i]=maxoutputdticks[eoalength-i]=theta0nticks;
 	ridx=0;
-	doidx=0;
 	maxidx=0;
 	integralforcedupdate=0;
 	lastextoutputave=integralest=0;
@@ -165,7 +158,6 @@ void PIDControlDeinit()
 {
 	free(errorvalues);
 	free(derivvalues);
-	free(delayedoutputs);
 	free(minoutputsums);
 	free(minerrorsums);
 	free(maxoutputsums);
@@ -225,69 +217,6 @@ float PIDControlGetPreviousAveExtOutput(float const* const& extoutputsums, float
 	return sum;
 }
 
-float PIDControlGetNextAveMaxOutput(float const* const& extoutputsums, float const* const& exterrorsums, uint32_t const* const& extoutputdticks, int16_t const& extidx, const uint32_t& nowticks, const float& dtime, const float& initerror, const float& tderiv, const float& sectderiv, float* errorsum)
-{
-	const float dtick = dtime*TIMER_N_TICKS_PER_SEC;
-	int16_t idx;
-	uint32_t nticks=nowticks-extoutputdticks[extidx];
-	float sum=extoutputsums[extidx];
-	*errorsum=exterrorsums[extidx];
-
-	if(naeocycles>1 || nticks<theta0nticks) {
-		int16_t i,j=1;
-		idx=(extidx-1)%eoalength;
-
-		if(idx<extidx) {
-
-			for(i=idx; i>=0; --i) {
-				sum+=extoutputsums[i];
-				*errorsum+=exterrorsums[i];
-				nticks+=extoutputdticks[i];
-
-				if(j>=naeocycles && nticks >= theta0nticks) goto found_next_amo;
-				++j;
-			}
-
-			for(i=eoalength-1; i>extidx; --i) {
-				sum+=extoutputsums[i];
-				*errorsum+=exterrorsums[i];
-				nticks+=extoutputdticks[i];
-
-				if(j>=naeocycles && nticks >= theta0nticks) goto found_next_amo;
-				++j;
-			}
-
-		} else {
-
-			for(i=idx; i>extidx; --i) {
-				sum+=extoutputsums[i];
-				*errorsum+=exterrorsums[i];
-				nticks+=extoutputdticks[i];
-
-				if(j>=naeocycles && nticks >= theta0nticks) goto found_next_amo;
-				++j;
-			}
-		}
-	}
-	found_next_amo:
-
-	int16_t doidxp=(doidx+1)%doalength;
-	float remtime=dtime;
-
-	while(remtime>secsbetweencalls) {
-		sum+=delayedoutputs[doidxp]*ticksbetweencalls;
-		doidxp=(doidxp+1)%doalength;
-		remtime-=secsbetweencalls;
-	}
-
-	if(remtime>0) sum+=delayedoutputs[doidxp]*remtime*TIMER_N_TICKS_PER_SEC;
-
-	sum/=nticks+dtick;
-	*errorsum=(*errorsum + dtick * (initerror + dtime * (0.5 * tderiv + dtime * sectderiv / 3))) / (nticks+dtick);
-	printf("Next average output is %7.3f%% with average temperature error %6.2f C, cycle time was %8.3f\n",sum*100,*errorsum,Tick2Sec(nticks));
-	return sum;
-}
-
 float PIDControl()
 {
 	//Same thread as temperature, so we don't need to use non-blocking algorithms
@@ -298,7 +227,7 @@ float PIDControl()
 	const float dtime = Tick2Sec(dtick); //Time increment in seconds since last cycle
 	const float error = tempval - GetTargetTemp(); //Temperature error
 
-	const float dos=delayedoutputs[doidx]*dtick;
+	const float dos=output*dtick;
 	const float es=error*dtick;
 	minoutputsums[minidx]+=dos;
 	minerrorsums[minidx]+=es;
@@ -466,17 +395,7 @@ float PIDControl()
 				} else {
 					rampstate=kRampDisabled;
 
-					if(tderiv <= 0 && sectderiv > 0) {
-						float zderivdt=-tderiv/sectderiv;
-						float newlastexterrave;
-						float newlastextoutputave=PIDControlGetNextAveMaxOutput(minoutputsums, minerrorsums, minoutputdticks, minidx, temptick, (zderivdt<theta0 ? zderivdt : theta0), error, tderiv, sectderiv, &newlastexterrave);
-
-						if(fabs(newlastexterrave) < fabs(lastexterrave) && ((newlastexterrave>0)^(lastexterrave>0)))
-							integral=(lastextoutputave*newlastexterrave - newlastextoutputave*lastexterrave) / (newlastexterrave - lastexterrave);
-
-						else integral=newlastextoutputave;
-
-					} else integral=integralest;
+					integral=integralest;
 					printf("Integral value set to %7.3f%%\n",integral*100);
 					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting regular PID)\n",Tick2Sec(temptick),tempval,100*integral);
 				}
@@ -515,17 +434,7 @@ float PIDControl()
 				} else {
 					rampstate=kRampDisabled;
 
-					if(tderiv >= 0 && sectderiv < 0) {
-						float zderivdt=-tderiv/sectderiv;
-						float newlastexterrave;
-						float newlastextoutputave=PIDControlGetNextAveMaxOutput(maxoutputsums, maxerrorsums, maxoutputdticks, maxidx, temptick, (zderivdt<theta0 ? zderivdt : theta0), error, tderiv, sectderiv, &newlastexterrave);
-
-						if(fabs(newlastexterrave) < fabs(lastexterrave) && ((newlastexterrave>0)^(lastexterrave>0)))
-							integral=(lastextoutputave*newlastexterrave - newlastextoutputave*lastexterrave) / (newlastexterrave - lastexterrave);
-
-						else integral=newlastextoutputave;
-
-					} else integral=integralest;
+					integral=integralest;
 					printf("Integral value set to %7.3f%%\n",integral*100);
 					printf("TSC: %8.3f: Temp: %6.2f C => %6.2f%% (starting regular PID)\n",Tick2Sec(temptick),tempval,100*integral);
 				}
@@ -641,9 +550,6 @@ float PIDControl()
 		}
 		printf("%8.3f: Temp: %6.2f C => %6.2f%% (P=%6.2f%%, DeltaI=  0.00%%, D=%6.2f%%, I=%6.2f%%)\n",Tick2Sec(temptick),tempval,100*output,100*pterm,100*dterm,100*integral);
 	}
-
-	delayedoutputs[doidx]=output;
-	doidx=(doidx+1)%doalength;
 
 	PWMSetOutput(output);
 
