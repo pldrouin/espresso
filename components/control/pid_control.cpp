@@ -384,11 +384,22 @@ float PIDControl()
 
 				if(terrorforecast < 0) {
 
-					if(aggressive_ramp || (!first_ramp && eoaready)) {
+					if(aggressive_ramp) {
+
+					    float newintegral=(1+0.5*integralforcedupdate/nifucycles)*integralest;
+
+					    if(newintegral < integral) integral=newintegral;
+
+					    else if(newintegral>maxintegralvalue) integral=maxintegralvalue;
+
+					    else integral=newintegral;
+						aggressive_ramp=false;
+						printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
+
+					} else if(!first_ramp && eoaready) {
 					    integral=(1+0.5*integralforcedupdate/nifucycles)*integralest;
 
 						if(integral>maxintegralvalue) integral=maxintegralvalue;
-						aggressive_ramp=false;
 						printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
 					}
 
@@ -423,11 +434,21 @@ float PIDControl()
 
 				if(terrorforecast > 0) {
 
-					if(aggressive_ramp || (!first_ramp && eoaready)) {
+					if(aggressive_ramp) {
+					    float newintegral=(1-0.5*integralforcedupdate/nifucycles)*integralest;
+
+					    if(newintegral > integral) integral=newintegral;
+
+					    else if(newintegral<minintegralvalue) integral=minintegralvalue;
+
+					    else integral=newintegral;
+						aggressive_ramp=false;
+						printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
+
+					} else if(!first_ramp && eoaready) {
 					    integral=(1-0.5*integralforcedupdate/nifucycles)*integralest;
 
 						if(integral<minintegralvalue) integral=minintegralvalue;
-						aggressive_ramp=false;
 						printf("OFF: %8.3f: Temp: %6.2f C => %6.2f%% (now waiting for lower temperature)\n",Tick2Sec(temptick),tempval,100*integral);
 					}
 
