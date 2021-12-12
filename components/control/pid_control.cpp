@@ -321,14 +321,14 @@ float PIDControl()
 					lastifuup=!lastifuup;
 				}
 
-				if(isnotdeadband && ((error>0 && integralest<integral) || (error<0 && integralest>integral))) integral=integralest;
+				if((error>deadband && integralest<integral) || (error<-deadband && integralest>integral)) integral=integralest;
 			}
 		}
 
-		if(isnotdeadband) {
+		if(fabs(error) > deadband) {
 
 			//If the temperature forecast is down below the ramp threshold
-			if(terrorforecast < -rampthresh || (integralforcedupdate && error < -0.25*rampthresh && terrorforecast < -0.5*rampthresh)) {
+			if(terrorforecast < -rampthresh || (integralforcedupdate && terrorforecast < -0.5*rampthresh)) {
 				rampstate=kRampActive;
 				aggressive_ramp=0;
 
@@ -352,7 +352,7 @@ float PIDControl()
 				printf(" ON: %8.3f: Temp: %6.2f C => %6.2f%% (starting ramp)\n",Tick2Sec(temptick),tempval,100*integral);
 
 				//Else if the temperature forecast is above the ramp threshold
-			} else if(terrorforecast > rampthresh || (integralforcedupdate && error > 0.25*rampthresh && terrorforecast > 0.5*rampthresh)) {
+			} else if(terrorforecast > rampthresh || (integralforcedupdate && terrorforecast > 0.5*rampthresh)) {
 				rampstate=kRampWait;
 				aggressive_ramp=0;
 
