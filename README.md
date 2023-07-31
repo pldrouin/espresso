@@ -13,12 +13,12 @@ windup and to optimize the response when the regime of the espresso machine
 changes, such as when the pump turns on to extract a shot, or when either steam
 or hot water is drawn.
 
-The PID algorithm features include:
--Integral windup prevention
--Integral deadband
+The PID algorithm features include:<br>
+-Integral windup prevention<br>
+-Integral deadband<br>
 -Automatic derivative disabling, and switching to a Taylor series based control
 algorithm when a large regime change is detected (to improve response, minimise
-overshooting and undershooting)
+overshooting and undershooting)<br>
 
 The integral windup prevention algorithm uses an integral estimate based on a
 recent average output calculation to reset the integral term, when appropriate.
